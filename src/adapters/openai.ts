@@ -259,6 +259,7 @@ class OpenAISession
 
         case 'response.audio_transcript.delta':
         case 'response.output_audio_transcript.delta':
+        case 'response.output_text.delta':
           this.currentSpeakingItemId = event.item_id as string;
           this.emit('assistant_transcript', {
             itemId: event.item_id as string,
@@ -269,10 +270,11 @@ class OpenAISession
 
         case 'response.audio_transcript.done':
         case 'response.output_audio_transcript.done':
+        case 'response.output_text.done':
           this.currentSpeakingItemId = null;
           this.emit('assistant_transcript', {
             itemId: event.item_id as string,
-            text: (event.transcript as string) || '',
+            text: (event.transcript as string) || (event.text as string) || '',
             isFinal: true,
           });
           break;

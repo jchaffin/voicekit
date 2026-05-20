@@ -134,9 +134,14 @@ export const TranscriptProvider: FC<PropsWithChildren> = ({ children }) => {
         }
         return prev.map((item) => {
           if (item.itemId === itemId && item.type === 'MESSAGE') {
+            const nextTitle = append
+              ? (item.title ?? '') + newText
+              : newText.replace(/[\s.…]+/g, '').length > 0
+                ? newText
+                : item.title;
             return {
               ...item,
-              title: append ? (item.title ?? '') + newText : newText,
+              title: nextTitle,
               role: item.role ?? role,
             };
           }

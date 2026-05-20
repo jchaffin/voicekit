@@ -32,8 +32,16 @@ export function useSessionHistory() {
       .map((c: unknown) => {
         if (!c || typeof c !== 'object') return '';
         const item = c as Record<string, unknown>;
-        if (item.type === 'input_text') return (item.text as string) ?? '';
-        if (item.type === 'audio') return (item.transcript as string) ?? '';
+        if (item.type === 'input_text' || item.type === 'output_text') {
+          return (item.text as string) ?? '';
+        }
+        if (
+          item.type === 'audio' ||
+          item.type === 'output_audio' ||
+          item.type === 'input_audio'
+        ) {
+          return (item.transcript as string) ?? '';
+        }
         return '';
       })
       .filter(Boolean)
@@ -263,11 +271,19 @@ export function useSessionHistory() {
       if (timer) clearTimeout(timer);
       deltaTimerRef.current.delete(itemId);
 
-      // Ground truth: text confirmed by the transcription stream
-      const spokenText = (accumulatedTextRef.current.get(itemId) || '').trim();
+      const existingItem = transcriptItemsRef.current.find(
+        (i) => i.itemId === itemId && i.type === 'MESSAGE'
+      );
+      const role = existingItem?.role ?? 'assistant';
 
-      // We don't know the "full intended text" since it was still streaming,
-      // but spokenText is what matters — it's what was actually transcribed.
+      // Ground truth: deltas first, then whatever is already on screen (completion
+      // may have cleared accumulatedTextRef before a late truncation event arrives).
+      const spokenText = (
+        accumulatedTextRef.current.get(itemId) ||
+        existingItem?.title ||
+        ''
+      ).trim();
+
       const fullText = spokenText;
 
       pendingDeltasRef.current.delete(itemId);
@@ -275,10 +291,14 @@ export function useSessionHistory() {
       interruptedItemsRef.current.add(itemId);
 
       if (spokenText.length > 0) {
-        updateTranscriptMessage(itemId, spokenText + '...', false, 'user');
+        const suffix = existingItem?.status === 'DONE' ? '' : '...';
+        updateTranscriptMessage(itemId, spokenText + suffix, false, role);
         updateTranscriptItem(itemId, { status: 'DONE' });
-      } else {
+      } else if (!existingItem?.title?.trim()) {
+        // Only hide when nothing was ever shown for this item.
         updateTranscriptItem(itemId, { isHidden: true, status: 'DONE' });
+      } else {
+        updateTranscriptItem(itemId, { status: 'DONE' });
       }
 
       return { spokenText, fullText };
