@@ -41,7 +41,6 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
   );
 
   const historyHandlers = useSessionHistory().current;
-  const interruptedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -83,7 +82,6 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
     });
 
     session.on('assistant_transcript', (data) => {
-      if (interruptedRef.current.has(data.itemId)) return;
       if (data.isFinal) {
         historyHandlers.handleTranscriptionCompleted({
           item_id: data.itemId,
@@ -134,12 +132,6 @@ export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
       if (ev.type === 'conversation.item.truncated') {
         const itemId = ev.item_id as string;
         if (itemId) {
-          interruptedRef.current.add(itemId);
-
-          // The server already truncated the model's conversation history.
-          // handleTruncation uses the accumulated transcript deltas as
-          // ground truth — whatever the STT stream confirmed = what was
-          // spoken. No audio-fraction estimation.
           const truncResult = historyHandlers.handleTruncation(itemId);
 
           if (truncResult) {

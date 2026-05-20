@@ -32,6 +32,28 @@ import type {
 import type { ToolDefinition } from '../types';
 import type { ToolMiddleware } from '../core/types';
 
+function extractAssistantTextFromOutput(output: unknown): { itemId: string; text: string } | null {
+  if (!Array.isArray(output)) return null;
+  for (let i = output.length - 1; i >= 0; i--) {
+    const item = output[i] as Record<string, unknown>;
+    if (item.type !== 'message' || item.role !== 'assistant') continue;
+    const itemId = (item.id as string) || '';
+    if (!itemId) continue;
+    const content = item.content;
+    if (!Array.isArray(content)) continue;
+    for (let j = content.length - 1; j >= 0; j--) {
+      const part = content[j] as Record<string, unknown>;
+      if (part.type === 'output_text' && typeof part.text === 'string' && part.text.trim()) {
+        return { itemId, text: part.text };
+      }
+      if (part.type === 'output_audio' && typeof part.transcript === 'string' && part.transcript.trim()) {
+        return { itemId, text: part.transcript };
+      }
+    }
+  }
+  return null;
+}
+
 // ============================================================================
 // Tool conversion: VoiceKit ToolDefinition -> OpenAI SDK tool
 // ============================================================================
@@ -164,19 +186,7 @@ class OpenAISession
   async sendMessage(text: string): Promise<void> {
     if (!this.session) throw new Error('Session not connected');
 
-    // Treat text input the same as voice barge-in: synthesize the truncation
-    // event the server sends for speech, so handleTruncation fires on the
-    // current speaking item and the display is cut at the right spot.
-    if (this.currentSpeakingItemId) {
-      this.emit('raw_event', {
-        type: 'conversation.item.truncated',
-        item_id: this.currentSpeakingItemId,
-      });
-      this.currentSpeakingItemId = null;
-    }
-
-    // Always interrupt so any playing audio stops immediately, regardless of
-    // whether a response is still being generated server-side.
+    // Stop audio only — do not synthesize truncation (that was wiping prior turns).
     this.session.interrupt();
 
     if (this.responseInFlight) {
@@ -259,25 +269,31 @@ class OpenAISession
 
         case 'response.audio_transcript.delta':
         case 'response.output_audio_transcript.delta':
-        case 'response.output_text.delta':
-          this.currentSpeakingItemId = event.item_id as string;
+        case 'response.output_text.delta': {
+          const itemId = event.item_id as string;
+          if (!itemId) break;
+          this.currentSpeakingItemId = itemId;
           this.emit('assistant_transcript', {
-            itemId: event.item_id as string,
+            itemId,
             delta: (event.delta as string) || '',
             isFinal: false,
           });
           break;
+        }
 
         case 'response.audio_transcript.done':
         case 'response.output_audio_transcript.done':
-        case 'response.output_text.done':
+        case 'response.output_text.done': {
+          const itemId = event.item_id as string;
+          if (!itemId) break;
           this.currentSpeakingItemId = null;
           this.emit('assistant_transcript', {
-            itemId: event.item_id as string,
+            itemId,
             text: (event.transcript as string) || (event.text as string) || '',
             isFinal: true,
           });
           break;
+        }
 
         case 'response.audio.delta':
         case 'response.output_audio.delta':
@@ -289,10 +305,21 @@ class OpenAISession
           this.emit('raw_event', event);
           break;
 
-        case 'response.done':
+        case 'response.done': {
           this.responseInFlight = false;
+          const response = event.response as Record<string, unknown> | undefined;
+          const assistant = extractAssistantTextFromOutput(response?.output);
+          if (assistant) {
+            this.currentSpeakingItemId = null;
+            this.emit('assistant_transcript', {
+              itemId: assistant.itemId,
+              text: assistant.text,
+              isFinal: true,
+            });
+          }
           this.emit('raw_event', event);
           break;
+        }
 
         case 'conversation.item.truncated':
           this.emit('raw_event', event);
