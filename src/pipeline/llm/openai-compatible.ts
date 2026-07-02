@@ -130,7 +130,7 @@ class OpenAICompatibleLLMImpl implements LLMProvider {
           if (!trimmed || !trimmed.startsWith('data: ')) continue;
           const data = trimmed.slice(6);
           if (data === '[DONE]') {
-            for (const tc of toolCallAccum.values()) {
+            for (const tc of Array.from(toolCallAccum.values())) {
               yield { type: 'tool_call', toolCall: { id: tc.id, name: tc.name, arguments: tc.args } };
             }
             yield { type: 'done' };
@@ -161,7 +161,7 @@ class OpenAICompatibleLLMImpl implements LLMProvider {
             }
 
             if (chunk.choices?.[0]?.finish_reason) {
-              for (const tc of toolCallAccum.values()) {
+              for (const tc of Array.from(toolCallAccum.values())) {
                 yield { type: 'tool_call', toolCall: { id: tc.id, name: tc.name, arguments: tc.args } };
               }
               const usage = chunk.usage

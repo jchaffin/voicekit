@@ -98,11 +98,11 @@ export const EventProvider: FC<PropsWithChildren> = ({ children }) => {
   }, []);
 
   return (
-    <EventContext.Provider
+    <EventContext
       value={{ loggedEvents, logClientEvent, logServerEvent, logHistoryItem, toggleExpand, clearEvents }}
     >
       {children}
-    </EventContext.Provider>
+    </EventContext>
   );
 };
 

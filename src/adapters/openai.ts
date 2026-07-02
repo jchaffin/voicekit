@@ -136,10 +136,11 @@ class OpenAISession
       inputAudioTranscription: transcription,
     };
     if (this.options.turnDetection) {
-      sessionConfig.turnDetection = {
-        type: 'server_vad',
-        ...this.options.turnDetection,
-      };
+      const turnDetection = this.options.turnDetection;
+      sessionConfig.turnDetection =
+        typeof turnDetection === 'object'
+          ? { type: 'server_vad', ...turnDetection }
+          : { type: turnDetection };
     }
 
     this.session = new RealtimeSession(this.agent, {

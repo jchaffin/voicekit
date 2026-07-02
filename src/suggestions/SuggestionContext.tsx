@@ -66,9 +66,9 @@ export function SuggestionProvider({
   };
 
   return (
-    <SuggestionCtx.Provider value={value}>
+    <SuggestionCtx value={value}>
       {children}
-    </SuggestionCtx.Provider>
+    </SuggestionCtx>
   );
 }
 

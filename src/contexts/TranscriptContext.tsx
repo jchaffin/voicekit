@@ -218,7 +218,7 @@ export const TranscriptProvider: FC<PropsWithChildren> = ({ children }) => {
   }, []);
 
   return (
-    <TranscriptContext.Provider
+    <TranscriptContext
       value={{
         transcriptItems,
         addTranscriptMessage,
@@ -230,7 +230,7 @@ export const TranscriptProvider: FC<PropsWithChildren> = ({ children }) => {
       }}
     >
       {children}
-    </TranscriptContext.Provider>
+    </TranscriptContext>
   );
 };
 

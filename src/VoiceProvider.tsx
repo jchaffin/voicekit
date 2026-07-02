@@ -273,9 +273,9 @@ export function VoiceProvider({
   };
 
   return (
-    <VoiceContext.Provider value={value}>
+    <VoiceContext value={value}>
       {children}
-    </VoiceContext.Provider>
+    </VoiceContext>
   );
 }
 
