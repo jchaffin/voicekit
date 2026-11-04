@@ -87,15 +87,15 @@
     "docs"
   ],
   "scripts": {
-    "build": "npm run build:legacy && npm run build --workspaces --if-present",
+    "build": "npm run build:workspaces && npm run build:legacy",
     "build:legacy": "tsup",
+    "build:workspaces": "npm run build --workspaces --if-present",
     "dev": "tsup --watch",
-    "prepare": "npm run build:legacy",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present && npm run typecheck:examples",
+    "typecheck": "npm run typecheck --workspaces --if-present && npm run build:workspaces && tsc --noEmit && npm run typecheck:examples",
     "typecheck:examples": "tsc --noEmit -p examples/tsconfig.json",
     "test": "npm run test --workspaces --if-present",
-    "prepublishOnly": "npm run build:legacy"
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "voice",
