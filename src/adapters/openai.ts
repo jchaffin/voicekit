@@ -5,7 +5,7 @@
  * ```ts
  * import { openai } from '@jchaffin/voicekit/openai';
  *
- * <VoiceProvider adapter={openai({ model: 'gpt-realtime' })} agent={agent}>
+ * <VoiceProvider adapter={openai({ model: 'gpt-realtime-2.1' })} agent={agent}>
  * ```
  *
  * Peer dependency: @openai/agents (>= 0.0.15)
@@ -18,6 +18,7 @@ import {
   tool as sdkTool,
 } from '@openai/agents/realtime';
 import { EventEmitter } from '../core/EventEmitter';
+import { VoiceError } from '../core/errors';
 import { emitToolResult } from '../tools';
 import type {
   VoiceAdapter,
@@ -28,9 +29,67 @@ import type {
   ConnectConfig,
   ServerSessionConfig,
   ServerAdapter,
+  HistoryItem,
+  RequestResponseOptions,
+  ResponseStatus,
 } from '../core/types';
 import type { ToolDefinition } from '../types';
 import type { ToolMiddleware } from '../core/types';
+
+/** Server errors that are expected during normal barge-in / overlapping turns. */
+const BENIGN_ERROR_CODES = new Set([
+  'response_cancel_not_active',
+  'conversation_already_has_active_response',
+]);
+
+function contentText(content: unknown): string {
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((c) => {
+      if (!c || typeof c !== 'object') return '';
+      const part = c as Record<string, unknown>;
+      if (part.type === 'input_text' || part.type === 'output_text') return (part.text as string) ?? '';
+      if (part.type === 'audio' || part.type === 'input_audio' || part.type === 'output_audio') {
+        return (part.transcript as string) ?? '';
+      }
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function toHistoryItem(raw: unknown): HistoryItem | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const item = raw as Record<string, unknown>;
+  if (item.type !== 'message') return null;
+  const itemId = (item.itemId as string) || (item.id as string);
+  if (!itemId || (item.role !== 'user' && item.role !== 'assistant')) return null;
+  const status = item.status as HistoryItem['status'];
+  return { itemId, role: item.role, text: contentText(item.content), ...(status && { status }) };
+}
+
+function toResponseStatus(status: unknown): ResponseStatus {
+  return status === 'cancelled' || status === 'failed' || status === 'incomplete' ? status : 'completed';
+}
+
+function toOpenAIError(err: unknown): VoiceError {
+  if (err instanceof VoiceError) return err;
+  // SDK wraps server errors as { type: 'error', error: { type: 'error', error: { code, message } } }
+  let node: unknown = err;
+  for (let i = 0; i < 3 && node && typeof node === 'object' && !(node instanceof Error); i++) {
+    const inner = (node as Record<string, unknown>).error;
+    if (!inner || typeof inner !== 'object') break;
+    node = inner;
+  }
+  const obj = (node && typeof node === 'object' ? node : {}) as Record<string, unknown>;
+  const message =
+    node instanceof Error ? node.message
+      : typeof obj.message === 'string' ? obj.message
+        : typeof err === 'string' ? err
+          : JSON.stringify(err);
+  const code = typeof obj.code === 'string' ? obj.code : undefined;
+  return new VoiceError(message, { code, provider: 'openai', cause: err });
+}
 
 function extractAssistantTextFromOutput(output: unknown): { itemId: string; text: string } | null {
   if (!Array.isArray(output)) return null;
@@ -107,16 +166,15 @@ class OpenAISession
   private session: RealtimeSession | null = null;
   private agent: RealtimeAgent;
   private options: SessionOptions;
-  private agentConfig: VoiceAgentConfig;
   private responseInFlight = false;
   /** itemId of the assistant response currently streaming audio/transcript deltas. */
   private currentSpeakingItemId: string | null = null;
+  private userSpeechStartMs: number | null = null;
 
-  constructor(agent: RealtimeAgent, options: SessionOptions, agentConfig: VoiceAgentConfig) {
+  constructor(agent: RealtimeAgent, options: SessionOptions) {
     super();
     this.agent = agent;
     this.options = options;
-    this.agentConfig = agentConfig;
   }
 
   async connect(config: ConnectConfig): Promise<void> {
@@ -160,7 +218,7 @@ class OpenAISession
           },
         }),
       }),
-      model: (this.options.model as string) || 'gpt-realtime',
+      model: (this.options.model as string) || 'gpt-realtime-2.1',
       config: sessionConfig,
       outputGuardrails: (config.outputGuardrails ?? []) as any,
       context: config.context ?? {},
@@ -169,19 +227,16 @@ class OpenAISession
     this.wireEvents(this.session);
     this.wireTransportDisconnect(this.session);
     await this.session.connect({ apiKey: config.authToken });
-    this.agentConfig.onConnect?.();
     this.emit('status_change', 'CONNECTED');
   }
 
   async disconnect(): Promise<void> {
     const s = this.session;
     this.session = null;
+    this.removeAllListeners();
     if (s) {
       try { s.close(); } catch {}
     }
-    this.agentConfig.onDisconnect?.();
-    this.emit('status_change', 'DISCONNECTED');
-    this.removeAllListeners();
   }
 
   async sendMessage(text: string): Promise<void> {
@@ -192,18 +247,13 @@ class OpenAISession
 
     if (this.responseInFlight) {
       await new Promise<void>((resolve) => {
-        const onDone = (event: Record<string, unknown>) => {
-          if ((event as any).type === 'response.done' || (event as any).type === 'response.cancelled') {
-            clearTimeout(timeoutId);
-            this.off('raw_event', onDone as any);
-            resolve();
-          }
-        };
-        this.on('raw_event', onDone as any);
-        const timeoutId = setTimeout(() => {
-          this.off('raw_event', onDone as any);
+        const onDone = () => {
+          clearTimeout(timeoutId);
+          this.off('response_done', onDone);
           resolve();
-        }, 1500);
+        };
+        this.on('response_done', onDone);
+        const timeoutId = setTimeout(onDone, 1500);
       });
     }
 
@@ -216,6 +266,22 @@ class OpenAISession
 
   mute(muted: boolean): void {
     this.session?.mute(muted);
+  }
+
+  requestResponse(options?: RequestResponseOptions): void {
+    this.sendRawEvent({
+      type: 'response.create',
+      ...(options?.instructions && { response: { instructions: options.instructions } }),
+    });
+  }
+
+  pushToTalkStart(): void {
+    this.sendRawEvent({ type: 'input_audio_buffer.clear' });
+  }
+
+  pushToTalkStop(): void {
+    this.sendRawEvent({ type: 'input_audio_buffer.commit' });
+    this.sendRawEvent({ type: 'response.create' });
   }
 
   sendRawEvent(event: Record<string, unknown>): void {
@@ -234,9 +300,7 @@ class OpenAISession
     transport.on('connection_change', (status: string) => {
       if (status === 'disconnected' && this.session === session) {
         this.session = null;
-        this.agentConfig.onDisconnect?.();
-        this.emit('error', new Error('Transport disconnected'));
-        this.emit('status_change', 'DISCONNECTED');
+        this.emit('status_change', 'DISCONNECTED', { reason: 'transport' });
         this.removeAllListeners();
       }
     });
@@ -246,13 +310,27 @@ class OpenAISession
   private wireEvents(session: RealtimeSession): void {
     session.on('transport_event', (event: Record<string, unknown>) => {
       const type = event.type as string;
+      // High-frequency events already fully represented by normalized events
+      // are not echoed to raw_event; everything else is, for logging/debugging.
+      let echoRaw = true;
 
       switch (type) {
         case 'input_audio_buffer.speech_started':
+          echoRaw = false;
+          this.userSpeechStartMs = typeof event.audio_start_ms === 'number' ? event.audio_start_ms : null;
           this.emit('user_speech_started');
           break;
 
+        case 'input_audio_buffer.speech_stopped': {
+          const end = typeof event.audio_end_ms === 'number' ? event.audio_end_ms : null;
+          const start = this.userSpeechStartMs;
+          this.userSpeechStartMs = null;
+          this.emit('user_speech_ended', start !== null && end !== null ? Math.max(0, end - start) : 0);
+          break;
+        }
+
         case 'conversation.item.input_audio_transcription.delta':
+          echoRaw = false;
           this.emit('user_transcript', {
             itemId: event.item_id as string,
             delta: (event.delta as string) || '',
@@ -261,6 +339,7 @@ class OpenAISession
           break;
 
         case 'conversation.item.input_audio_transcription.completed':
+          echoRaw = false;
           this.emit('user_transcript', {
             itemId: event.item_id as string,
             text: (event.transcript as string) || '',
@@ -271,6 +350,7 @@ class OpenAISession
         case 'response.audio_transcript.delta':
         case 'response.output_audio_transcript.delta':
         case 'response.output_text.delta': {
+          echoRaw = false;
           const itemId = event.item_id as string;
           if (!itemId) break;
           this.currentSpeakingItemId = itemId;
@@ -285,6 +365,7 @@ class OpenAISession
         case 'response.audio_transcript.done':
         case 'response.output_audio_transcript.done':
         case 'response.output_text.done': {
+          echoRaw = false;
           const itemId = event.item_id as string;
           if (!itemId) break;
           this.currentSpeakingItemId = null;
@@ -298,13 +379,31 @@ class OpenAISession
 
         case 'response.audio.delta':
         case 'response.output_audio.delta':
+          echoRaw = false;
           this.emit('audio_delta', event.item_id as string, event.delta as string);
           break;
 
-        case 'response.created':
-          this.responseInFlight = true;
-          this.emit('raw_event', event);
+        case 'output_audio_buffer.started':
+          this.emit('assistant_speech_started', {
+            itemId: this.currentSpeakingItemId ?? undefined,
+            responseId: event.response_id as string | undefined,
+          });
           break;
+
+        case 'output_audio_buffer.stopped':
+        case 'output_audio_buffer.cleared':
+          this.emit('assistant_speech_ended', {
+            itemId: this.currentSpeakingItemId ?? undefined,
+            responseId: event.response_id as string | undefined,
+          });
+          break;
+
+        case 'response.created': {
+          this.responseInFlight = true;
+          const response = event.response as Record<string, unknown> | undefined;
+          this.emit('response_started', { responseId: response?.id as string | undefined });
+          break;
+        }
 
         case 'response.done': {
           this.responseInFlight = false;
@@ -318,18 +417,26 @@ class OpenAISession
               isFinal: true,
             });
           }
-          this.emit('raw_event', event);
+          this.emit('response_done', {
+            responseId: response?.id as string | undefined,
+            status: toResponseStatus(response?.status),
+          });
           break;
         }
 
-        case 'conversation.item.truncated':
-          this.emit('raw_event', event);
+        case 'conversation.item.truncated': {
+          const itemId = event.item_id as string;
+          if (itemId) {
+            this.emit('interrupted', {
+              itemId,
+              audioEndMs: typeof event.audio_end_ms === 'number' ? event.audio_end_ms : undefined,
+            });
+          }
           break;
-
-        default:
-          this.emit('raw_event', event);
-          break;
+        }
       }
+
+      if (echoRaw) this.emit('raw_event', event);
     });
 
     session.on('agent_tool_start', ((...args: unknown[]) => {
@@ -362,26 +469,22 @@ class OpenAISession
       this.emit('guardrail_tripped', args);
     }) as any);
 
-    session.on('history_updated', ((...args: unknown[]) => {
-      this.emit('raw_event', { type: 'history_updated', items: args[0] });
+    session.on('history_updated', ((items: unknown) => {
+      if (!Array.isArray(items)) return;
+      const normalized = items.map(toHistoryItem).filter((i): i is HistoryItem => i !== null);
+      this.emit('history_updated', normalized);
     }) as any);
 
-    session.on('history_added', ((...args: unknown[]) => {
-      this.emit('raw_event', { type: 'history_added', item: args[0] });
+    session.on('history_added', ((item: unknown) => {
+      const normalized = toHistoryItem(item);
+      if (normalized) this.emit('history_updated', [normalized]);
     }) as any);
 
     session.on('error', (error: unknown) => {
-      if (error instanceof Error) {
-        this.emit('error', error);
-      } else if (error && typeof error === 'object') {
-        const obj = error as Record<string, unknown>;
-        const msg = (obj.message as string)
-          || (obj.error as any)?.message
-          || JSON.stringify(error);
-        this.emit('error', new Error(msg));
-      } else {
-        this.emit('error', new Error(String(error)));
-      }
+      const voiceError = toOpenAIError(error);
+      if (voiceError.code && BENIGN_ERROR_CODES.has(voiceError.code)) return;
+      if (!voiceError.code && Array.from(BENIGN_ERROR_CODES).some((c) => voiceError.message.includes(c))) return;
+      this.emit('error', voiceError);
     });
   }
 }
@@ -423,7 +526,7 @@ export function openai(options: OpenAIAdapterOptions = {}): VoiceAdapter {
     createSession(agentConfig: VoiceAgentConfig, sessionOpts?: SessionOptions): VoiceSession {
       const merged: SessionOptions = { ...options, ...sessionOpts };
       const agent = buildRealtimeAgent(agentConfig);
-      return new OpenAISession(agent, merged, agentConfig);
+      return new OpenAISession(agent, merged);
     },
   };
 }
@@ -472,7 +575,7 @@ export function openaiServer(config: OpenAIServerConfig = {}): ServerAdapter {
           },
           session: {
             type: 'realtime',
-            model: (merged.model as string) || 'gpt-realtime',
+            model: (merged.model as string) || 'gpt-realtime-2.1',
             ...(merged.voice && { audio: { output: { voice: merged.voice } } }),
             ...(merged.instructions && { instructions: merged.instructions }),
           },

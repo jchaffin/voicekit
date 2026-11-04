@@ -8,14 +8,12 @@ import React, {
   useCallback,
   useEffect,
 } from 'react';
-import type {
-  VoiceAdapter,
-  VoiceSession,
-  VoiceAgentConfig,
-} from './core/types';
+import { useSelector } from '@xstate/react';
+import { SessionController } from './core/SessionController';
+import { selectIsConnected, selectStatus } from './core/sessionMachine';
 import { VoiceStatusEnum } from './core/types';
+import type { VoiceKitEvents, RequestResponseOptions } from './core/types';
 import type {
-  VoiceStatus,
   TranscriptMessage,
   VoiceContextValue,
   VoiceProviderProps,
@@ -32,9 +30,6 @@ const VoiceContext = createContext<VoiceContextValue | null>(null);
  *   with `useRealtimeSession` / `useSessionHistory`.
  *
  * Do **not** mix both — pick one integration path per app.
- *
- * Initial greeting is handled by the adapter (e.g. `openai()` sends
- * `response.create` when `agent.greeting !== false`).
  */
 export function VoiceProvider({
   children,
@@ -43,25 +38,28 @@ export function VoiceProvider({
   sessionEndpoint = '/api/session',
   model,
   language = 'en',
+  sessionOptions,
+  autoGreet = true,
+  handlers,
   onStatusChange,
   onTranscriptUpdate,
   onToolCall,
   onError,
 }: VoiceProviderProps) {
-  const [status, setStatus] = useState<VoiceStatus>(VoiceStatusEnum.DISCONNECTED);
+  const controllerRef = useRef<SessionController | null>(null);
+  if (!controllerRef.current) controllerRef.current = new SessionController();
+  const controller = controllerRef.current;
+
+  const status = useSelector(controller.actor, selectStatus);
+  const isConnected = useSelector(controller.actor, selectIsConnected);
   const [transcript, setTranscript] = useState<TranscriptMessage[]>([]);
   const [isMuted, setIsMuted] = useState(false);
 
-  const sessionRef = useRef<VoiceSession | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const statusRef = useRef<VoiceStatus>(VoiceStatusEnum.DISCONNECTED);
   const currentMsgIdRef = useRef<string | null>(null);
+  const propsRef = useRef({ handlers, onStatusChange, onTranscriptUpdate, onToolCall, onError });
+  propsRef.current = { handlers, onStatusChange, onTranscriptUpdate, onToolCall, onError };
 
-  useEffect(() => {
-    statusRef.current = status;
-  }, [status]);
-
-  // Create audio element on mount
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -82,182 +80,130 @@ export function VoiceProvider({
     };
   }, []);
 
-  const updateStatus = useCallback((newStatus: VoiceStatus) => {
-    setStatus(newStatus);
-    onStatusChange?.(newStatus);
-  }, [onStatusChange]);
+  const setTranscriptAndNotify = useCallback(
+    (update: (prev: TranscriptMessage[]) => TranscriptMessage[]) => {
+      setTranscript((prev) => {
+        const next = update(prev);
+        propsRef.current.onTranscriptUpdate?.(next);
+        return next;
+      });
+    },
+    []
+  );
 
-  // Transcript helpers
-  const addMessage = useCallback((role: 'user' | 'assistant', text: string, id?: string) => {
+  const addMessage = useCallback((role: 'user' | 'assistant', text: string) => {
     const message: TranscriptMessage = {
-      id: id || crypto.randomUUID(),
+      id: crypto.randomUUID(),
       role,
       text,
       timestamp: new Date(),
       status: 'pending',
     };
-
-    setTranscript(prev => {
-      const updated = [...prev, message];
-      onTranscriptUpdate?.(updated);
-      return updated;
-    });
-
+    setTranscriptAndNotify((prev) => [...prev, message]);
     return message.id;
-  }, [onTranscriptUpdate]);
+  }, [setTranscriptAndNotify]);
 
-  const updateMessage = useCallback((id: string, text: string, append = false) => {
-    setTranscript(prev => {
-      const updated = prev.map(m =>
-        m.id === id
-          ? { ...m, text: append ? m.text + text : text }
-          : m
-      );
-      onTranscriptUpdate?.(updated);
-      return updated;
-    });
-  }, [onTranscriptUpdate]);
+  useEffect(() => {
+    const appendToMessage = (id: string, delta: string) =>
+      setTranscriptAndNotify((prev) => prev.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)));
+    const completeMessage = (id: string) =>
+      setTranscriptAndNotify((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'complete' as const } : m)));
 
-  const completeMessage = useCallback((id: string) => {
-    setTranscript(prev => {
-      const updated = prev.map(m =>
-        m.id === id ? { ...m, status: 'complete' as const } : m
-      );
-      onTranscriptUpdate?.(updated);
-      return updated;
-    });
-  }, [onTranscriptUpdate]);
-
-  // Wire normalized session events to local state
-  const wireSessionEvents = useCallback((session: VoiceSession) => {
-    session.on('user_transcript', (data) => {
-      if (data.isFinal) {
-        addMessage('user', data.text || data.delta || '');
-      }
-    });
-
-    session.on('assistant_transcript', (data) => {
-      if (data.isFinal) {
-        if (currentMsgIdRef.current) {
-          completeMessage(currentMsgIdRef.current);
-          currentMsgIdRef.current = null;
+    const internal: Partial<VoiceKitEvents> = {
+      status_change: (s) => {
+        if (s === VoiceStatusEnum.DISCONNECTED) currentMsgIdRef.current = null;
+        propsRef.current.onStatusChange?.(s);
+      },
+      user_transcript: (data) => {
+        if (data.isFinal) addMessage('user', data.text || data.delta || '');
+      },
+      assistant_transcript: (data) => {
+        if (data.isFinal) {
+          if (currentMsgIdRef.current) {
+            completeMessage(currentMsgIdRef.current);
+            currentMsgIdRef.current = null;
+          }
+        } else if (data.delta) {
+          if (!currentMsgIdRef.current) currentMsgIdRef.current = addMessage('assistant', data.delta);
+          else appendToMessage(currentMsgIdRef.current, data.delta);
         }
-      } else if (data.delta) {
-        if (!currentMsgIdRef.current) {
-          currentMsgIdRef.current = addMessage('assistant', data.delta);
-        } else {
-          updateMessage(currentMsgIdRef.current, data.delta, true);
-        }
-      }
-    });
+      },
+      tool_call_end: (name, input, output) => propsRef.current.onToolCall?.(name, input, output),
+      error: (error) => {
+        console.error('VoiceKit session error:', error);
+        propsRef.current.onError?.(error);
+      },
+    };
 
-    session.on('tool_call_end', (name, input, output) => {
-      onToolCall?.(name, input, output);
-    });
+    const forward = (name: keyof VoiceKitEvents & string) => (...args: unknown[]) => {
+      (internal[name] as ((...a: unknown[]) => void) | undefined)?.(...args);
+      (propsRef.current.handlers?.[name] as ((...a: unknown[]) => void) | undefined)?.(...args);
+    };
 
-    session.on('error', (error) => {
-      console.error('VoiceKit session error:', error);
-      onError?.(error);
-    });
-  }, [addMessage, updateMessage, completeMessage, onToolCall, onError]);
+    const names = [
+      'status_change', 'connected', 'disconnected', 'reconnecting', 'reconnected',
+      'user_speech_started', 'user_speech_ended', 'user_transcript',
+      'assistant_transcript', 'assistant_speech_started', 'assistant_speech_ended',
+      'response_started', 'response_done', 'interrupted', 'history_updated',
+      'tool_call_start', 'tool_call_end', 'agent_handoff', 'guardrail_tripped',
+      'error', 'raw_event',
+    ] as const;
+    const subs = names.map((name) => [name, forward(name)] as const);
+    for (const [name, fn] of subs) controller.on(name, fn);
+    return () => {
+      for (const [name, fn] of subs) controller.off(name, fn);
+    };
+  }, [controller, addMessage, setTranscriptAndNotify]);
 
-  // Fetch session token from backend
+  useEffect(() => () => { void controller.disconnect('client'); }, [controller]);
+
   const fetchToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const res = await fetch(sessionEndpoint, { method: 'POST' });
-      if (!res.ok) return null;
-      const data = await res.json();
-      return data.ephemeralKey || data.token || null;
-    } catch {
-      return null;
-    }
+    const res = await fetch(sessionEndpoint, { method: 'POST' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.ephemeralKey || data.token || null;
   }, [sessionEndpoint]);
 
   const connect = useCallback(async () => {
-    if (statusRef.current !== VoiceStatusEnum.DISCONNECTED) return;
     if (!audioRef.current) return;
-
-    updateStatus(VoiceStatusEnum.CONNECTING);
-
     try {
-      const token = await fetchToken();
-      if (!token) {
-        onError?.(new Error('Failed to get session key'));
-        updateStatus(VoiceStatusEnum.DISCONNECTED);
-        return;
-      }
-
-      const session = adapter.createSession(agent, { model, language });
-      sessionRef.current = session;
-
-      wireSessionEvents(session);
-
-      await session.connect({
-        authToken: token,
+      await controller.connect({
+        adapter,
+        agent,
+        getAuthToken: fetchToken,
         audioElement: audioRef.current,
+        sessionOptions: { model, language, ...sessionOptions },
+        greet: autoGreet,
       });
-
-      updateStatus(VoiceStatusEnum.CONNECTED);
-    } catch (error) {
-      console.error('VoiceKit connection failed:', error);
-      try {
-        await sessionRef.current?.disconnect();
-      } catch {
-        // ignore
-      }
-      sessionRef.current = null;
-      currentMsgIdRef.current = null;
-      onError?.(error instanceof Error ? error : new Error(String(error)));
-      updateStatus(VoiceStatusEnum.DISCONNECTED);
+    } catch {
+      // Already surfaced through the `error` event.
     }
-  }, [adapter, agent, model, language, fetchToken, wireSessionEvents, updateStatus, onError]);
+  }, [controller, adapter, agent, model, language, sessionOptions, autoGreet, fetchToken]);
 
-  const disconnect = useCallback(async () => {
-    if (sessionRef.current) {
-      try {
-        await sessionRef.current.disconnect();
-      } catch {
-        // Ignore close errors
-      }
-      sessionRef.current = null;
-    }
-    currentMsgIdRef.current = null;
-    updateStatus(VoiceStatusEnum.DISCONNECTED);
-  }, [updateStatus]);
+  const disconnect = useCallback(() => controller.disconnect('client'), [controller]);
 
   const sendMessage = useCallback((text: string) => {
-    if (!sessionRef.current || statusRef.current !== VoiceStatusEnum.CONNECTED) return;
-    sessionRef.current.interrupt();
-    sessionRef.current.sendMessage(text);
-  }, []);
+    if (!isConnected) return;
+    controller.interrupt();
+    controller.sendMessage(text);
+  }, [controller, isConnected]);
 
-  const interrupt = useCallback(() => {
-    sessionRef.current?.interrupt();
-  }, []);
+  const interrupt = useCallback(() => controller.interrupt(), [controller]);
+
+  const requestResponse = useCallback(
+    (options?: RequestResponseOptions) => controller.requestResponse(options),
+    [controller]
+  );
 
   const mute = useCallback((muted: boolean) => {
     setIsMuted(muted);
-    sessionRef.current?.mute(muted);
-    if (audioRef.current) {
-      audioRef.current.muted = muted;
-    }
-  }, []);
+    controller.mute(muted);
+    if (audioRef.current) audioRef.current.muted = muted;
+  }, [controller]);
 
   const clearTranscript = useCallback(() => {
-    setTranscript([]);
-    onTranscriptUpdate?.([]);
-  }, [onTranscriptUpdate]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      try {
-        sessionRef.current?.disconnect();
-      } catch {
-        // Ignore cleanup errors
-      }
-    };
-  }, []);
+    setTranscriptAndNotify(() => []);
+  }, [setTranscriptAndNotify]);
 
   const value: VoiceContextValue = {
     status,
@@ -267,8 +213,11 @@ export function VoiceProvider({
     clearTranscript,
     sendMessage,
     interrupt,
+    requestResponse,
     mute,
     isMuted,
+    on: controller.on,
+    off: controller.off,
     agent,
   };
 
@@ -289,4 +238,24 @@ export function useVoice(): VoiceContextValue {
     throw new Error('useVoice must be used within a VoiceProvider');
   }
   return context;
+}
+
+/**
+ * Subscribe to a VoiceKit event for the component's lifetime.
+ * The latest `handler` is always called; no need to memoize it.
+ */
+export function useVoiceEvent<E extends string & keyof VoiceKitEvents>(
+  event: E,
+  handler: VoiceKitEvents[E]
+): void {
+  const { on, off } = useVoice();
+  const handlerRef = useRef(handler);
+  handlerRef.current = handler;
+
+  useEffect(() => {
+    const fn = ((...args: unknown[]) =>
+      (handlerRef.current as (...a: unknown[]) => void)(...args)) as VoiceKitEvents[E];
+    on(event, fn);
+    return () => off(event, fn);
+  }, [event, on, off]);
 }

@@ -40,7 +40,7 @@ export interface SessionConfig {
  * @example Next.js with config
  * ```ts
  * export const POST = createSessionHandler({ 
- *   model: 'gpt-realtime',
+ *   model: 'gpt-realtime-2.1',
  *   voice: 'alloy' 
  * });
  * ```
@@ -71,7 +71,7 @@ export function createSessionHandler(config: SessionConfig = {}) {
           },
           session: {
             type: 'realtime',
-            model: config.model || 'gpt-realtime',
+            model: config.model || 'gpt-realtime-2.1',
             ...(config.voice && { 
               audio: { 
                 output: { voice: config.voice } 
@@ -152,7 +152,7 @@ export async function getEphemeralKey(config: SessionConfig = {}): Promise<
         },
         session: {
           type: 'realtime',
-          model: config.model || 'gpt-realtime',
+          model: config.model || 'gpt-realtime-2.1',
           ...(config.voice && { 
             audio: { 
               output: { voice: config.voice } 

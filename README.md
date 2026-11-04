@@ -103,14 +103,14 @@ Each adapter normalizes its provider's API into the same `VoiceSession` interfac
 ```tsx
 import { openai } from '@jchaffin/voicekit/openai';
 
-<VoiceProvider adapter={openai({ model: 'gpt-realtime', codec: 'opus' })} agent={agent}>
+<VoiceProvider adapter={openai({ model: 'gpt-realtime-2.1', codec: 'opus' })} agent={agent}>
 ```
 
 Server:
 
 ```ts
 import { openaiServer } from '@jchaffin/voicekit/openai';
-const server = openaiServer({ model: 'gpt-realtime', voice: 'alloy' });
+const server = openaiServer({ model: 'gpt-realtime-2.1', voice: 'alloy' });
 export const POST = server.createSessionHandler();
 ```
 
@@ -204,27 +204,64 @@ const {
   clearTranscript, // () => void
   sendMessage,     // (text: string) => void
   interrupt,       // () => void
+  requestResponse, // (options?: { instructions?: string }) => void
   mute,            // (muted: boolean) => void
   isMuted,         // boolean
+  on, off,         // subscribe to any VoiceKit event
   agent,           // VoiceAgentConfig
 } = useVoice();
 ```
 
+`VoiceProvider` speaks `agent.greeting` on connect unless `autoGreet={false}`. Pass `handlers={{ ... }}` to subscribe to events declaratively.
+
+### `useVoiceEvent(event, handler)`
+
+Subscribe to one event for a component's lifetime. The latest handler is always used, so it doesn't need memoizing.
+
+```tsx
+useVoiceEvent('disconnected', ({ reason, error }) => {
+  if (reason !== 'client') toast(`Call dropped (${reason})`);
+});
+```
+
 ### `useRealtimeSession()`
 
-Lower-level hook for direct session control with the adapter pattern. Used when you need more control than `useVoice()` provides (push-to-talk, raw events, etc.).
+Lower-level hook for direct session control with the adapter pattern. Used when you need more control than `useVoice()` provides (push-to-talk, custom greeting timing, etc.).
 
 ```ts
 const {
   status, connect, disconnect,
-  sendUserText, sendEvent,
+  sendUserText, requestResponse, greet,
   mute, interrupt,
   pushToTalkStart, pushToTalkStop,
+  on, off, controller,
+  sendEvent, // provider-specific escape hatch
 } = useRealtimeSession({
   onConnectionChange: (status) => {},
   onAgentHandoff: (agentName) => {},
+  handlers: { response_done: ({ status }) => {} },
 });
+
+await connect({ adapter: openai(), initialAgents: [agent], getAuthToken, audioElement });
 ```
+
+## Lifecycle Events
+
+Every adapter emits the same normalized events, relayed through a `SessionController` that outlives individual sessions — subscribe once and keep receiving events across reconnects. The controller is framework-agnostic and also usable outside React.
+
+| Event | Payload |
+| --- | --- |
+| `connected` / `reconnected` | — |
+| `reconnecting` | `{ attempt? }` |
+| `disconnected` | `{ reason: 'client' \| 'server' \| 'transport' \| 'error', error? }` |
+| `user_speech_started` / `user_speech_ended` | — / `durationMs` |
+| `assistant_speech_started` / `assistant_speech_ended` | `{ itemId?, responseId? }` |
+| `response_started` / `response_done` | `{ responseId? }` / `{ responseId?, status }` |
+| `interrupted` | `{ itemId, audioEndMs? }` |
+| `history_updated` | `HistoryItem[]` |
+| `error` | `VoiceError` (`code`, `provider`, `fatal`) |
+
+`agent.onConnect` / `agent.onDisconnect` fire for every adapter. Adapters only report connection changes they didn't initiate: `disconnect()` must not emit `status_change`.
 
 ### `useToolResult(toolName)`
 
@@ -257,6 +294,43 @@ const { startRecording, stopRecording, downloadRecording, getRecordingBlob, clea
 ### `useSessionHistory()`
 
 Manages transcript state for the advanced `useRealtimeSession` flow — handles deltas, completions, barge-in truncation, and guardrail results.
+
+## Tool Catalog & Toolkit
+
+Declare tools once (zod schema + description) and bind them to any provider's tool type.
+
+```ts
+import { z } from 'zod';
+import { createCatalog, defineCatalogTool, createToolkit, toolDefinitionBinding } from '@jchaffin/voicekit';
+
+const catalog = createCatalog(
+  defineCatalogTool('lookup_order', z.object({ id: z.string() }), 'Look up an order by id'),
+  defineCatalogTool('end_call', z.object({}), 'End the call'),
+);
+
+const kit = createToolkit({
+  catalog,
+  invoke: (key, input) => api[key](input),
+  intercept: async (result, ctx) => endCall.maybeEndCall(result, ctx), // true = call ended
+  binding: toolDefinitionBinding(z), // VoiceKit ToolDefinition, for any client adapter
+});
+
+const tools = [
+  kit.register('lookup_order', kit.plain),   // run, return result
+  kit.register('end_call', kit.terminal),    // lock speech, run, let intercept end the call
+];
+```
+
+`kit.endable` runs the interceptor without locking speech. Thrown errors become `{ success: false, error }` (override with `run`).
+
+For LiveKit Agents (server-side Node), use the `llm.tool` binding:
+
+```ts
+import { createLiveKitToolkit } from '@jchaffin/voicekit/livekit-agents';
+
+const kit = createLiveKitToolkit({ catalog, invoke, intercept });
+new voice.Agent({ instructions, tools: { end_call: kit.register('end_call', kit.terminal) } });
+```
 
 ## Tool Builders
 
@@ -375,7 +449,7 @@ Legacy OpenAI-specific helpers (also available via `@jchaffin/voicekit/openai`):
 import { createSessionHandler, getEphemeralKey, handleOptions } from '@jchaffin/voicekit/server';
 
 // Next.js App Router
-export const POST = createSessionHandler({ model: 'gpt-realtime', voice: 'alloy' });
+export const POST = createSessionHandler({ model: 'gpt-realtime-2.1', voice: 'alloy' });
 export function OPTIONS() { return handleOptions(); }
 
 // Express / custom
@@ -386,8 +460,9 @@ const { ephemeralKey, error } = await getEphemeralKey();
 
 ```
 @jchaffin/voicekit
-├── Core types (VoiceAdapter, VoiceSession, SessionEvents)
-├── Adapters (openai, livekit, deepgram, elevenlabs)
+├── Core (SessionController, VoiceAdapter, VoiceSession, normalized events, VoiceError)
+├── Adapters (openai, livekit, livekit-agents, deepgram, elevenlabs, assemblyai, pipecat, pipeline)
+├── Toolkit (createCatalog, createToolkit, provider bindings)
 ├── React Provider (VoiceProvider + useVoice)
 ├── Hooks (useRealtimeSession, useSessionHistory, useAudioRecorder, tool hooks)
 ├── UI Components (VoiceChat, Transcript, ConnectButton, ChatInput, StatusIndicator)

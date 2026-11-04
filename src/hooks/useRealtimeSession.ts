@@ -1,279 +1,188 @@
 'use client';
 
-import { useCallback, useRef, useState, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
+import { useSelector } from '@xstate/react';
 import { useEvent } from '../contexts/EventContext';
 import { useSessionHistory } from './useSessionHistory';
-import { VoiceStatusEnum } from '../core/types';
-import type { VoiceStatus } from '../types';
-import type { VoiceAdapter, VoiceSession, VoiceAgentConfig } from '../core/types';
+import { SessionController } from '../core/SessionController';
+import { selectIsConnected, selectStatus } from '../core/sessionMachine';
+import type {
+  VoiceAdapter,
+  VoiceAgentConfig,
+  VoiceKitEvents,
+  VoiceStatus,
+  SessionOptions,
+  RequestResponseOptions,
+} from '../core/types';
 
 export interface RealtimeSessionCallbacks {
   onConnectionChange?: (status: VoiceStatus) => void;
   onAgentHandoff?: (agentName: string) => void;
+  /** Handlers for any VoiceKit event; kept subscribed across reconnects. */
+  handlers?: Partial<VoiceKitEvents>;
 }
 
 export interface ConnectOptions {
-  getEphemeralKey: () => Promise<string>;
-  /** Agent config or array of agent configs. First entry is the root agent. */
+  /** Provider adapter, e.g. openai() from @jchaffin/voicekit/openai. */
+  adapter: VoiceAdapter;
+  /** Agent configs. The first entry is the root agent. */
   initialAgents: VoiceAgentConfig[];
+  /** Returns the credential from your session endpoint. */
+  getAuthToken?: () => Promise<string | null | undefined>;
+  /** @deprecated Use `getAuthToken`. */
+  getEphemeralKey?: () => Promise<string>;
   audioElement?: HTMLAudioElement;
   extraContext?: Record<string, unknown>;
   outputGuardrails?: unknown[];
-  /** Provider adapter to use. Required for new-style usage. */
-  adapter?: VoiceAdapter;
+  /** Merged over the defaults `{ language: 'en', codec }`. */
+  sessionOptions?: SessionOptions;
+  /** Speak the root agent's `greeting` once connected. Default: false */
+  greet?: boolean;
+}
+
+function codecFromUrl(): string | undefined {
+  if (typeof window === 'undefined') return undefined;
+  return new URLSearchParams(window.location.search).get('codec')?.toLowerCase() || undefined;
 }
 
 export function useRealtimeSession(callbacks: RealtimeSessionCallbacks = {}) {
-  const sessionRef = useRef<VoiceSession | null>(null);
-  const [status, setStatus] = useState<VoiceStatus>(VoiceStatusEnum.DISCONNECTED);
+  const controllerRef = useRef<SessionController | null>(null);
+  if (!controllerRef.current) controllerRef.current = new SessionController();
+  const controller = controllerRef.current;
+
+  const status = useSelector(controller.actor, selectStatus);
+  const isConnected = useSelector(controller.actor, selectIsConnected);
   const { logClientEvent, logServerEvent } = useEvent();
-  const codecParamRef = useRef<string>('opus');
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
-  const updateStatus = useCallback(
-    (s: VoiceStatus) => {
-      setStatus(s);
-      callbacksRef.current.onConnectionChange?.(s);
-      logClientEvent({}, s);
-    },
-    [logClientEvent]
-  );
-
-  const historyHandlers = useSessionHistory().current;
+  const history = useSessionHistory().current;
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const codec = params.get('codec');
-      if (codec) {
-        codecParamRef.current = codec.toLowerCase();
-      }
-    }
-  }, []);
-
-  const wireNormalizedEvents = useCallback((session: VoiceSession) => {
-    session.on('status_change', (status: unknown) => {
-      if (status === 'DISCONNECTED' && sessionRef.current === session) {
-        sessionRef.current = null;
-        updateStatus(VoiceStatusEnum.DISCONNECTED);
-      }
-    });
-
-    // Barge-in: user started speaking, mark current assistant item as interrupted
-    session.on('user_speech_started', () => {});
-
-    session.on('user_transcript', (data) => {
-      if (data.isFinal) {
-        const text = data.text || data.delta || '';
-        if (text.replace(/[\s.…,!?]+/g, '').length === 0) return;
-        historyHandlers.handleTranscriptionCompleted({
-          item_id: data.itemId,
-          transcript: text,
-          role: 'user',
-        });
-      } else if (data.delta) {
-        historyHandlers.handleTranscriptionDelta({
-          item_id: data.itemId,
-          delta: data.delta,
-          role: 'user',
-        });
-      }
-    });
-
-    session.on('assistant_transcript', (data) => {
-      if (data.isFinal) {
-        historyHandlers.handleTranscriptionCompleted({
-          item_id: data.itemId,
-          transcript: data.text || '',
-          role: 'assistant',
-        });
-      } else if (data.delta) {
-        historyHandlers.handleTranscriptionDelta({
-          item_id: data.itemId,
-          delta: data.delta,
-          role: 'assistant',
-        });
-      }
-    });
-
-    session.on('tool_call_start', (name, input) => {
-      historyHandlers.handleAgentToolStart(
-        {} as Record<string, unknown>,
-        undefined,
-        { name, arguments: input } as Record<string, unknown>
-      );
-    });
-
-    session.on('tool_call_end', (name, input, result) => {
-      historyHandlers.handleAgentToolEnd(
-        {} as Record<string, unknown>,
-        undefined,
-        { name, arguments: input } as Record<string, unknown>,
-        result
-      );
-    });
-
-    session.on('agent_handoff', (_from, to) => {
-      callbacksRef.current.onAgentHandoff?.(to);
-    });
-
-    session.on('guardrail_tripped', (info) => {
-      historyHandlers.handleGuardrailTripped(
-        {} as Record<string, unknown>,
-        undefined,
-        { result: info } as Record<string, unknown>
-      );
-    });
-
-    session.on('raw_event', (event) => {
-      const ev = event as Record<string, unknown>;
-
-      if (ev.type === 'conversation.item.truncated') {
-        const itemId = ev.item_id as string;
-        if (itemId) {
-          const truncResult = historyHandlers.handleTruncation(itemId);
-
-          if (truncResult) {
-            logServerEvent({
-              type: 'barge_in',
-              interruptedItemId: itemId,
-              spokenText: truncResult.spokenText,
-            });
-          }
+    const subscriptions: [keyof VoiceKitEvents & string, (...args: any[]) => void][] = [
+      ['status_change', (s: VoiceStatus) => {
+        callbacksRef.current.onConnectionChange?.(s);
+        logClientEvent({}, s);
+      }],
+      ['user_transcript', (data) => {
+        if (data.isFinal) {
+          const text = data.text || data.delta || '';
+          if (text.replace(/[\s.…,!?]+/g, '').length === 0) return;
+          history.handleTranscriptionCompleted({ itemId: data.itemId, text, role: 'user' });
+        } else if (data.delta) {
+          history.handleTranscriptionDelta({ itemId: data.itemId, delta: data.delta, role: 'user' });
         }
-        return;
-      }
+      }],
+      ['assistant_transcript', (data) => {
+        if (data.isFinal) {
+          history.handleTranscriptionCompleted({ itemId: data.itemId, text: data.text || '', role: 'assistant' });
+        } else if (data.delta) {
+          history.handleTranscriptionDelta({ itemId: data.itemId, delta: data.delta, role: 'assistant' });
+        }
+      }],
+      ['tool_call_start', (name, input) => history.handleToolStart(name, input)],
+      ['tool_call_end', (name, input, output) => history.handleToolEnd(name, input, output)],
+      ['agent_handoff', (_from, to) => callbacksRef.current.onAgentHandoff?.(to)],
+      ['history_updated', (items) => history.handleHistoryUpdated(items)],
+      ['interrupted', ({ itemId }) => {
+        const { spokenText } = history.handleInterrupted(itemId);
+        logServerEvent({ type: 'interrupted', itemId, spokenText });
+      }],
+      ['raw_event', (event) => {
+        if (event && typeof event === 'object') logServerEvent(event as Record<string, unknown>);
+      }],
+      ['error', (error: Error) => {
+        console.error('VoiceKit session error:', error);
+        logServerEvent({ type: 'error', message: error.message });
+      }],
+    ];
 
-      if (ev.type === 'history_updated') {
-        historyHandlers.handleHistoryUpdated(ev.items as Record<string, unknown>[]);
-        return;
-      }
-      if (ev.type === 'history_added') {
-        historyHandlers.handleHistoryAdded(ev.item as Record<string, unknown>);
-        return;
-      }
-
-      logServerEvent(ev);
+    const userEvents = [
+      'connected', 'disconnected', 'reconnecting', 'reconnected',
+      'user_speech_started', 'user_speech_ended',
+      'assistant_speech_started', 'assistant_speech_ended',
+      'response_started', 'response_done',
+      ...subscriptions.map(([name]) => name),
+    ] as const;
+    const forwarders = Array.from(new Set(userEvents)).map((name) => {
+      const fn = (...args: unknown[]) => {
+        const handler = callbacksRef.current.handlers?.[name] as ((...a: unknown[]) => void) | undefined;
+        handler?.(...args);
+      };
+      return [name, fn] as const;
     });
 
-    session.on('error', (error) => {
-      const e = error as any;
-      const msg = (e instanceof Error) ? e.message : (typeof e === 'string') ? e : JSON.stringify(e);
-      const errObj = typeof e === 'object' && e?.error ? e.error : e;
-      const code = (typeof errObj === 'object' && errObj?.code) ? String(errObj.code) : '';
-      const msgStr = typeof msg === 'string' ? msg : '';
-      const isBenign =
-        code === 'response_cancel_not_active' ||
-        code === 'conversation_already_has_active_response' ||
-        msgStr.includes('response_cancel_not_active') ||
-        msgStr.includes('conversation_already_has_active_response');
-      if (isBenign) return;
-      console.error('Session error:', msg);
-      logServerEvent({ type: 'error', message: msg });
-    });
-  }, [historyHandlers, logServerEvent]);
+    for (const [name, fn] of [...subscriptions, ...forwarders]) controller.on(name, fn);
+    return () => {
+      for (const [name, fn] of [...subscriptions, ...forwarders]) controller.off(name, fn);
+    };
+  }, [controller, history, logClientEvent, logServerEvent]);
+
+  useEffect(() => () => { void controller.disconnect('client'); }, [controller]);
 
   const connect = useCallback(
     async ({
-      getEphemeralKey,
+      adapter,
       initialAgents,
+      getAuthToken,
+      getEphemeralKey,
       audioElement,
       extraContext,
       outputGuardrails,
-      adapter,
+      sessionOptions,
+      greet,
     }: ConnectOptions) => {
-      if (sessionRef.current) return;
-
       if (!adapter) {
-        throw new Error(
-          'useRealtimeSession: `adapter` is required in ConnectOptions. ' +
-          'Pass an adapter like openai() from @jchaffin/voicekit/openai.'
-        );
+        throw new Error('useRealtimeSession: `adapter` is required in ConnectOptions.');
       }
       if (!initialAgents?.length) {
         throw new Error('useRealtimeSession: `initialAgents` must be a non-empty array.');
       }
-
-      updateStatus(VoiceStatusEnum.CONNECTING);
-
-      const ek = await getEphemeralKey();
-      const rootAgent = initialAgents[0];
-      const codecParam = codecParamRef.current;
-
-      const session = adapter.createSession(rootAgent, {
-        codec: codecParam,
-        language: 'en',
-      });
-
-      sessionRef.current = session;
-      wireNormalizedEvents(session);
-
-      try {
-        await session.connect({
-          authToken: ek,
-          audioElement,
-          context: extraContext,
-          outputGuardrails,
-        });
-        updateStatus(VoiceStatusEnum.CONNECTED);
-      } catch (connectError) {
-        console.error('Connection error:', connectError);
-        sessionRef.current = null;
-        updateStatus(VoiceStatusEnum.DISCONNECTED);
-        throw connectError;
+      const tokenFn = getAuthToken ?? getEphemeralKey;
+      if (!tokenFn) {
+        throw new Error('useRealtimeSession: `getAuthToken` is required in ConnectOptions.');
       }
+
+      const codec = codecFromUrl();
+      await controller.connect({
+        adapter,
+        agent: initialAgents[0],
+        getAuthToken: tokenFn,
+        audioElement,
+        context: extraContext,
+        outputGuardrails,
+        sessionOptions: { language: 'en', ...(codec && { codec }), ...sessionOptions },
+        greet,
+      });
     },
-    [updateStatus, wireNormalizedEvents]
+    [controller]
   );
 
-  const disconnect = useCallback(async () => {
-    if (sessionRef.current) {
-      try {
-        await sessionRef.current.disconnect();
-      } catch (error) {
-        console.error('Error closing session:', error);
-      } finally {
-        sessionRef.current = null;
-        updateStatus(VoiceStatusEnum.DISCONNECTED);
-      }
-    } else {
-      updateStatus(VoiceStatusEnum.DISCONNECTED);
-    }
-  }, [updateStatus]);
-
-  const interrupt = useCallback(() => {
-    sessionRef.current?.interrupt();
-  }, []);
-
-  const sendUserText = useCallback((text: string) => {
-    if (!sessionRef.current) throw new Error('Session not connected');
-    sessionRef.current.sendMessage(text);
-  }, []);
-
-  const sendEvent = useCallback((ev: Record<string, unknown>) => {
-    sessionRef.current?.sendRawEvent?.(ev);
-  }, []);
-
-  const mute = useCallback((m: boolean) => {
-    sessionRef.current?.mute(m);
-  }, []);
-
-  const pushToTalkStart = useCallback(() => {
-    sessionRef.current?.sendRawEvent?.({ type: 'input_audio_buffer.clear' });
-  }, []);
-
-  const pushToTalkStop = useCallback(() => {
-    sessionRef.current?.sendRawEvent?.({ type: 'input_audio_buffer.commit' });
-    sessionRef.current?.sendRawEvent?.({ type: 'response.create' });
-  }, []);
+  const disconnect = useCallback(() => controller.disconnect('client'), [controller]);
+  const interrupt = useCallback(() => controller.interrupt(), [controller]);
+  const sendUserText = useCallback((text: string) => controller.sendMessage(text), [controller]);
+  const sendEvent = useCallback((ev: Record<string, unknown>) => controller.sendRawEvent(ev), [controller]);
+  const requestResponse = useCallback(
+    (options?: RequestResponseOptions) => controller.requestResponse(options),
+    [controller]
+  );
+  const greet = useCallback((text: string) => controller.greet(text), [controller]);
+  const mute = useCallback((m: boolean) => controller.mute(m), [controller]);
+  const pushToTalkStart = useCallback(() => controller.pushToTalkStart(), [controller]);
+  const pushToTalkStop = useCallback(() => controller.pushToTalkStop(), [controller]);
 
   return {
     status,
+    isConnected,
+    controller,
+    on: controller.on,
+    off: controller.off,
     connect,
     disconnect,
     sendUserText,
     sendEvent,
+    requestResponse,
+    greet,
     mute,
     pushToTalkStart,
     pushToTalkStop,

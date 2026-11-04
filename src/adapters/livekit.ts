@@ -72,11 +72,11 @@ class LiveKitSession extends EventEmitter<SessionEvents> implements VoiceSession
     });
 
     this.room.on(RoomEvent.Disconnected, () => {
-      this.emit('status_change', 'DISCONNECTED');
+      this.emit('status_change', 'DISCONNECTED', { reason: 'server' });
     });
 
     this.room.on(RoomEvent.Reconnecting, () => {
-      this.emit('status_change', 'CONNECTING');
+      this.emit('status_change', 'CONNECTING', { reconnecting: true });
     });
 
     this.room.on(RoomEvent.Reconnected, () => {
@@ -92,11 +92,10 @@ class LiveKitSession extends EventEmitter<SessionEvents> implements VoiceSession
   }
 
   async disconnect(): Promise<void> {
-    if (this.room) {
-      await this.room.disconnect();
-      this.room = null;
-    }
     this.removeAllListeners();
+    const room = this.room;
+    this.room = null;
+    if (room) await room.disconnect();
   }
 
   sendMessage(text: string): void {

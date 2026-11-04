@@ -21,6 +21,8 @@ import type {
   SessionOptions,
   SessionEvents,
   ConnectConfig,
+  RequestResponseOptions,
+  ResponseStatus,
 } from '../core/types';
 import type {
   VoicePipelineConfig,
@@ -99,12 +101,12 @@ class PipelineSession extends EventEmitter<SessionEvents> implements VoiceSessio
     this.processor.connect(this.audioCtx.destination);
 
     this.alive = true;
-    this.agent.onConnect?.();
     this.emit('status_change', 'CONNECTED');
   }
 
   async disconnect(): Promise<void> {
     this.alive = false;
+    this.removeAllListeners();
     this.interrupt();
     this.processor?.disconnect();
     this.audioCtx?.close();
@@ -116,9 +118,6 @@ class PipelineSession extends EventEmitter<SessionEvents> implements VoiceSessio
     this.audioCtx = null;
     this.mediaStream = null;
     this.playCtx = null;
-    this.agent.onDisconnect?.();
-    this.emit('status_change', 'DISCONNECTED');
-    this.removeAllListeners();
   }
 
   async sendMessage(text: string): Promise<void> {
@@ -138,7 +137,11 @@ class PipelineSession extends EventEmitter<SessionEvents> implements VoiceSessio
     this.mediaStream?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
   }
 
-  sendRawEvent(): void { /* no-op */ }
+  requestResponse(options?: RequestResponseOptions): void {
+    if (this.generating) this.interrupt();
+    if (options?.instructions) this.history.push({ role: 'system', content: options.instructions });
+    this.generate();
+  }
 
   // ---- generation loop ----
 
@@ -148,6 +151,8 @@ class PipelineSession extends EventEmitter<SessionEvents> implements VoiceSessio
     this.abort = new AbortController();
     const sig = this.abort.signal;
     const id = `a-${Date.now()}`;
+    let status: ResponseStatus = 'completed';
+    this.emit('response_started', { responseId: id });
 
     const tools: ToolDefinition[] = (this.agent.tools || []).map((t) => ({
       name: t.name,
@@ -202,10 +207,17 @@ class PipelineSession extends EventEmitter<SessionEvents> implements VoiceSessio
         this.emit('assistant_transcript', { itemId: id, text: full, isFinal: true });
       }
     } catch (err) {
-      if (!sig.aborted) this.emit('error', err instanceof Error ? err : new Error(String(err)));
+      if (!sig.aborted) {
+        status = 'failed';
+        this.emit('error', err instanceof Error ? err : new Error(String(err)));
+      }
     } finally {
-      this.generating = false;
-      this.abort = null;
+      if (sig.aborted) status = 'cancelled';
+      if (this.abort?.signal === sig) {
+        this.generating = false;
+        this.abort = null;
+      }
+      this.emit('response_done', { responseId: id, status });
     }
   }
 

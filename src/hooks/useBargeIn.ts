@@ -1,7 +1,10 @@
 'use client';
 
 import { useRef, useCallback, useEffect, useState } from 'react';
-import type { VoiceSession, BargeInEvent } from '../core/types';
+import type { VoiceEventSource, BargeInEvent } from '../core/types';
+
+/** A raw session or a `SessionController`. */
+type InterruptibleSource = VoiceEventSource & { interrupt(): void };
 
 export interface BargeInConfig {
   /** Automatically interrupt the assistant when user starts speaking. Default: true */
@@ -26,7 +29,7 @@ export interface UseBargeInReturn {
 }
 
 export function useBargeIn(
-  session: VoiceSession | null,
+  session: InterruptibleSource | null,
   config: BargeInConfig = {},
   callbacks?: {
     onBargeIn?: (event: BargeInEvent) => void;

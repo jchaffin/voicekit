@@ -1,4 +1,11 @@
-import type { VoiceAgentConfig, VoiceAdapter, VoiceStatus } from './core/types';
+import type {
+  VoiceAgentConfig,
+  VoiceAdapter,
+  VoiceStatus,
+  VoiceKitEvents,
+  SessionOptions,
+  RequestResponseOptions,
+} from './core/types';
 
 // ============================================================================
 // Status & Connection
@@ -79,6 +86,12 @@ export interface VoiceProviderProps extends VoiceConfig {
   adapter: VoiceAdapter;
   /** Agent configuration */
   agent: VoiceAgentConfig;
+  /** Extra adapter options, merged over `{ model, language }` */
+  sessionOptions?: SessionOptions;
+  /** Speak `agent.greeting` once connected. Default: true */
+  autoGreet?: boolean;
+  /** Handlers for any VoiceKit event; kept subscribed across reconnects. */
+  handlers?: Partial<VoiceKitEvents>;
   children: React.ReactNode;
 }
 
@@ -96,9 +109,14 @@ export interface VoiceContextValue {
 
   sendMessage: (text: string) => void;
   interrupt: () => void;
+  requestResponse: (options?: RequestResponseOptions) => void;
 
   mute: (muted: boolean) => void;
   isMuted: boolean;
+
+  /** Subscribe to any VoiceKit event (prefer `useVoiceEvent` in components). */
+  on: <E extends string & keyof VoiceKitEvents>(event: E, handler: VoiceKitEvents[E]) => void;
+  off: <E extends string & keyof VoiceKitEvents>(event: E, handler: VoiceKitEvents[E]) => void;
 
   agent: VoiceAgentConfig;
 }

@@ -2,7 +2,9 @@
 
 import { useRef } from 'react';
 import { useTranscript } from '../contexts/TranscriptContext';
-import { useEvent } from '../contexts/EventContext';
+import type { HistoryItem } from '../core/types';
+
+type Role = 'user' | 'assistant';
 
 function hasText(text: string): boolean {
   return text.replace(/[\s.…]+/g, '').length > 0;
@@ -20,30 +22,7 @@ export function useSessionHistory() {
   const transcriptItemsRef = useRef(transcriptItems);
   transcriptItemsRef.current = transcriptItems;
 
-  const { logServerEvent } = useEvent();
   const liveTextRef = useRef<Map<string, string>>(new Map());
-
-  const extractMessageText = (content: unknown[] = []): string => {
-    if (!Array.isArray(content)) return '';
-    return content
-      .map((c: unknown) => {
-        if (!c || typeof c !== 'object') return '';
-        const part = c as Record<string, unknown>;
-        if (part.type === 'input_text' || part.type === 'output_text') {
-          return (part.text as string) ?? '';
-        }
-        if (
-          part.type === 'audio' ||
-          part.type === 'output_audio' ||
-          part.type === 'input_audio'
-        ) {
-          return (part.transcript as string) ?? '';
-        }
-        return '';
-      })
-      .filter(Boolean)
-      .join('\n');
-  };
 
   const textForItem = (itemId: string, fromHistory: string): string => {
     const live = liveTextRef.current.get(itemId);
@@ -55,18 +34,9 @@ export function useSessionHistory() {
     return fromHistory;
   };
 
-  function syncHistoryMessage(item: Record<string, unknown>) {
-    if (!item || item.type !== 'message') return;
-
-    const itemId = (item.itemId as string) || (item.id as string);
-    const role = item.role as string | undefined;
-    const content = (item.content as unknown[]) ?? [];
-
-    if (!itemId || !role) return;
-
-    const messageRole = role === 'assistant' ? 'assistant' : 'user';
-    const historyText = extractMessageText(content);
-    const text = textForItem(itemId, historyText);
+  function syncHistoryItem(item: HistoryItem) {
+    const { itemId, role } = item;
+    const text = textForItem(itemId, item.text);
 
     const guardrail = text.match(/Failure Details: (\{.*?\})/)?.[1];
     if (guardrail) {
@@ -85,12 +55,12 @@ export function useSessionHistory() {
     );
 
     if (!existing) {
-      addTranscriptMessage(itemId, messageRole, text);
+      addTranscriptMessage(itemId, role, text);
       return;
     }
 
     if (hasText(text)) {
-      updateTranscriptMessage(itemId, text, false, messageRole);
+      updateTranscriptMessage(itemId, text, false, role);
     }
 
     const status = text ? 'DONE' : existing.status;
@@ -100,20 +70,11 @@ export function useSessionHistory() {
     });
   }
 
-  function handleHistoryUpdated(items: Record<string, unknown>[]) {
-    for (const item of items) {
-      syncHistoryMessage(item);
-    }
+  function handleHistoryUpdated(items: HistoryItem[]) {
+    for (const item of items) syncHistoryItem(item);
   }
 
-  function handleHistoryAdded(item: Record<string, unknown>) {
-    syncHistoryMessage(item);
-  }
-
-  function handleTranscriptionDelta(item: Record<string, unknown>) {
-    const itemId = item.item_id as string;
-    const role = (item.role as 'user' | 'assistant') || 'user';
-    const delta = (item.delta as string) || '';
+  function handleTranscriptionDelta({ itemId, delta, role }: { itemId: string; delta: string; role: Role }) {
     if (!itemId || !delta) return;
 
     const text = (liveTextRef.current.get(itemId) || '') + delta;
@@ -123,13 +84,10 @@ export function useSessionHistory() {
     updateTranscriptMessage(itemId, text, false, role);
   }
 
-  function handleTranscriptionCompleted(item: Record<string, unknown>) {
-    const itemId = item.item_id as string;
-    const role = (item.role as 'user' | 'assistant') || 'user';
+  function handleTranscriptionCompleted({ itemId, text, role }: { itemId: string; text: string; role: Role }) {
     if (!itemId) return;
 
-    const finalText =
-      liveTextRef.current.get(itemId) || (item.transcript as string) || '';
+    const finalText = liveTextRef.current.get(itemId) || text || '';
     liveTextRef.current.delete(itemId);
 
     if (!hasText(finalText)) {
@@ -152,7 +110,7 @@ export function useSessionHistory() {
     updateTranscriptItem(itemId, { status: 'DONE', isHidden: false });
   }
 
-  function handleTruncation(itemId: string) {
+  function handleInterrupted(itemId: string) {
     const existing = transcriptItemsRef.current.find(
       (i) => i.itemId === itemId && i.type === 'MESSAGE'
     );
@@ -167,36 +125,20 @@ export function useSessionHistory() {
     }
     updateTranscriptItem(itemId, { status: 'DONE', isHidden: false });
 
-    return { spokenText: text, fullText: text };
+    return { spokenText: text };
   }
 
   const handlersRef = useRef({
-    handleAgentToolStart: (
-      _details: Record<string, unknown>,
-      _agent: unknown,
-      fn: Record<string, unknown>
-    ) => {
-      addTranscriptBreadcrumb(`function call: ${fn.name}`);
+    handleToolStart: (name: string, _input: unknown) => {
+      addTranscriptBreadcrumb(`function call: ${name}`);
     },
-    handleAgentToolEnd: (
-      _details: Record<string, unknown>,
-      _agent: unknown,
-      fn: Record<string, unknown>,
-      result: unknown
-    ) => {
-      addTranscriptBreadcrumb(`function call result: ${fn.name}`, { result });
+    handleToolEnd: (name: string, _input: unknown, result: unknown) => {
+      addTranscriptBreadcrumb(`function call result: ${name}`, { result });
     },
     handleHistoryUpdated,
-    handleHistoryAdded,
     handleTranscriptionDelta,
     handleTranscriptionCompleted,
-    handleTruncation,
-    handleGuardrailTripped: (
-      _details: Record<string, unknown>,
-      _agent: unknown,
-      _guardrail: Record<string, unknown>
-    ) => {},
-    isInterrupted: (_itemId: string) => false,
+    handleInterrupted,
   });
 
   return handlersRef;

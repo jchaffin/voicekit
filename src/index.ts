@@ -54,7 +54,7 @@
  */
 
 // Provider & Core Hook
-export { VoiceProvider, useVoice } from './VoiceProvider';
+export { VoiceProvider, useVoice, useVoiceEvent } from './VoiceProvider';
 
 // UI Components
 export {
@@ -89,6 +89,20 @@ export {
   emitToolResult,
   TOOL_RESULT_EVENT,
 } from './tools';
+
+// Provider-agnostic tool catalog/toolkit
+export {
+  defineCatalogTool,
+  createCatalog,
+  createToolkit,
+  runToolSafely,
+  toolDefinitionBinding,
+  type CatalogTool,
+  type ToolCatalog,
+  type ToolExecutor,
+  type ToolkitBinding,
+  type ToolkitOptions,
+} from './toolkit';
 
 // Hooks
 export {
@@ -228,6 +242,21 @@ export type {
   VoiceAgentConfig,
   ToolMiddleware,
   SessionEvents,
+  LifecycleEvents,
+  VoiceKitEvents,
+  VoiceEventSource,
+  DisconnectReason,
+  DisconnectInfo,
+  StatusChangeDetail,
+  ResponseStatus,
+  ResponseInfo,
+  ResponseDoneInfo,
+  AssistantSpeechInfo,
+  InterruptionInfo,
+  HistoryItem,
+  RequestResponseOptions,
+  ControllerConnectOptions,
+  VoiceErrorOptions,
   TranscriptData,
   VADEvent,
   BargeInEvent,
@@ -239,7 +268,13 @@ export type {
   ServerSessionConfig,
 } from './core';
 
-export { EventEmitter } from './core';
+export { EventEmitter, EventBus, SessionController, sessionMachine, VoiceError, toVoiceError } from './core';
+export {
+  OutcomeRecorder,
+  type OutcomeActor,
+  type OutcomeRecordedEvent,
+  type OutcomeRecorderOptions,
+} from './core';
 
 // Provider type (for app-level switching logic)
 export type VoiceProviderName = 'openai' | 'elevenlabs' | 'livekit' | 'deepgram' | 'pipecat';

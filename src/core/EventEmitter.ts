@@ -31,3 +31,10 @@ export class EventEmitter<Events extends EventMap = EventMap> {
     this.handlers.clear();
   }
 }
+
+/** EventEmitter whose `emit` is public, for relaying events to subscribers. */
+export class EventBus<Events extends EventMap = EventMap> extends EventEmitter<Events> {
+  public override emit<E extends string & keyof Events>(event: E, ...args: Parameters<Events[E]>): void {
+    super.emit(event, ...args);
+  }
+}
