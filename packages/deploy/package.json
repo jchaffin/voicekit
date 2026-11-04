@@ -1,0 +1,38 @@
+{
+  "name": "@jchaffin/voicekit-deploy",
+  "version": "1.0.0-alpha.0",
+  "description": "Provider-agnostic deployment planning and execution for VoiceKit",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "tsup --config tsup.test.config.ts && node --test .test-dist/*.test.js && node -e \"require('node:fs').rmSync('.test-dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

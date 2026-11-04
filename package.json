@@ -1,7 +1,11 @@
 {
   "name": "@jchaffin/voicekit",
-  "version": "0.4.0",
+  "version": "1.0.0-alpha.0",
   "description": "A provider-agnostic React library for building voice-enabled AI agents",
+  "workspaces": [
+    "packages/*"
+  ],
+  "sideEffects": false,
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -10,6 +14,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./v1": {
+      "types": "./dist/v1.d.ts",
+      "import": "./dist/v1.mjs",
+      "require": "./dist/v1.js"
     },
     "./openai": {
       "types": "./dist/adapters/openai.d.ts",
@@ -74,15 +83,19 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "docs"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "npm run build:legacy && npm run build --workspaces --if-present",
+    "build:legacy": "tsup",
     "dev": "tsup --watch",
-    "prepare": "tsup",
+    "prepare": "npm run build:legacy",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "tsup"
+    "typecheck": "tsc --noEmit && npm run typecheck --workspaces --if-present && npm run typecheck:examples",
+    "typecheck:examples": "tsc --noEmit -p examples/tsconfig.json",
+    "test": "npm run test --workspaces --if-present",
+    "prepublishOnly": "npm run build:legacy"
   },
   "keywords": [
     "voice",
@@ -105,16 +118,37 @@
   ],
   "author": "Jacob Chaffin",
   "license": "MIT",
+  "homepage": "https://github.com/jchaffin/voicekit#readme",
+  "bugs": {
+    "url": "https://github.com/jchaffin/voicekit/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "packageManager": "npm@11.17.0",
   "publishConfig": {
     "access": "public"
   },
   "peerDependencies": {
+    "@cartesia/cartesia-js": ">=1.0.0",
+    "@deepgram/sdk": ">=3.0.0",
+    "@elevenlabs/elevenlabs-js": ">=2.0.0",
+    "@livekit/agents": ">=1.9.0",
+    "@openai/agents": ">=0.4.0",
+    "assemblyai": ">=4.0.0",
+    "livekit-client": ">=2.0.0",
+    "livekit-server-sdk": ">=2.0.0",
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0",
-    "zod": ">=3.0.0 || >=4.0.0",
-    "@livekit/agents": ">=1.9.0"
+    "zod": ">=3.0.0 || >=4.0.0"
   },
   "peerDependenciesMeta": {
+    "@cartesia/cartesia-js": {
+      "optional": true
+    },
+    "@elevenlabs/elevenlabs-js": {
+      "optional": true
+    },
     "@openai/agents": {
       "optional": true
     },
@@ -128,6 +162,9 @@
       "optional": true
     },
     "@deepgram/sdk": {
+      "optional": true
+    },
+    "assemblyai": {
       "optional": true
     },
     "zod": {
@@ -147,7 +184,32 @@
     "url": "https://github.com/jchaffin/voicekit"
   },
   "dependencies": {
+    "@jchaffin/voicekit-conformance": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-core": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-deploy": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-graph": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-persistence": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-pipeline": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-policy": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-protocol": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-provider-assemblyai": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-provider-cartesia": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-provider-deepgram": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-provider-elevenlabs": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-provider-openai": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-react": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-runtime-livekit": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-runtime-pipecat": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-session": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-simulation": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-telemetry": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-tools": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-transport-livekit": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-ui": "1.0.0-alpha.0",
     "@xstate/react": "^6.1.0",
     "xstate": "^5.33.3"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
   }
 }

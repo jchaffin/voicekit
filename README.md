@@ -2,6 +2,27 @@
 
 A provider-agnostic React library for building voice-enabled AI agents. Swap between OpenAI Realtime, LiveKit, Deepgram, and ElevenLabs without changing your application code.
 
+## VoiceKit v1 alpha
+
+VoiceKit v1 is now a multi-package platform for declarative, multi-agent voice
+applications. It separates session lifecycle, executable policy, tools,
+provider capabilities, transports, persistence, telemetry, React state, UI,
+simulation, conformance, and deployment.
+
+```ts
+import { graph, policy, session } from '@jchaffin/voicekit/v1';
+```
+
+The existing imports below remain available as a compatibility layer during
+the alpha. New applications should start with:
+
+- [Architecture](./docs/architecture.md)
+- [Provider capabilities](./docs/provider-capabilities.md)
+- [Policy and lifecycle](./docs/policy-and-lifecycle.md)
+- [One-shot deployment](./docs/one-shot-deploy.md)
+- [Migration from 0.4](./docs/migration-from-0.4.md)
+- [Stable v1 release gates](./docs/stable-v1-release-gates.md)
+
 ## Installation
 
 ```bash

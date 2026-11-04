@@ -1,0 +1,44 @@
+{
+  "name": "@jchaffin/voicekit-cli",
+  "version": "1.0.0-alpha.0",
+  "description": "Command-line deployment workflow for VoiceKit",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "voicekit": "./dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "tsup --config tsup.test.config.ts && node --test .test-dist/*.test.js && node -e \"require('node:fs').rmSync('.test-dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@jchaffin/voicekit-deploy": "1.0.0-alpha.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}

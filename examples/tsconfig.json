@@ -1,0 +1,19 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "types": ["node"],
+    "paths": {
+      "@jchaffin/voicekit-core": ["../packages/core/src/index.ts"],
+      "@jchaffin/voicekit-graph": ["../packages/graph/src/index.ts"],
+      "@jchaffin/voicekit-pipeline": ["../packages/pipeline/src/index.ts"],
+      "@jchaffin/voicekit-policy": ["../packages/policy/src/index.ts"],
+      "@jchaffin/voicekit-protocol": ["../packages/protocol/src/index.ts"],
+      "@jchaffin/voicekit-provider-elevenlabs": ["../packages/provider-elevenlabs/src/index.ts"],
+      "@jchaffin/voicekit-provider-openai": ["../packages/provider-openai/src/index.ts"],
+      "@jchaffin/voicekit-session": ["../packages/session/src/index.ts"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

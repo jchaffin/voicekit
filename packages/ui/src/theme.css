@@ -1,0 +1,173 @@
+:where([data-voicekit]) {
+  --vk-color-bg: #ffffff;
+  --vk-color-fg: #151515;
+  --vk-color-muted: #6b7280;
+  --vk-color-accent: #6d5dfc;
+  --vk-color-danger: #c81e1e;
+  --vk-color-border: #d6d6dc;
+  --vk-radius: 0.625rem;
+  --vk-space: 0.75rem;
+  --vk-font: ui-sans-serif, system-ui, sans-serif;
+  color: var(--vk-color-fg);
+  font-family: var(--vk-font);
+}
+
+.vk-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.vk-button,
+.vk-chip,
+.vk-text-input,
+.vk-device-picker {
+  border: 1px solid var(--vk-color-border);
+  border-radius: var(--vk-radius);
+  background: var(--vk-color-bg);
+  color: var(--vk-color-fg);
+  font: inherit;
+}
+
+.vk-button,
+.vk-chip {
+  cursor: pointer;
+  padding: 0.55rem 0.8rem;
+}
+
+.vk-button:focus-visible,
+.vk-chip:focus-visible,
+.vk-text-input:focus-visible,
+.vk-device-picker:focus-visible {
+  outline: 2px solid var(--vk-color-accent);
+  outline-offset: 2px;
+}
+
+.vk-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.vk-end-button { color: var(--vk-color-danger); }
+.vk-approve-button { background: var(--vk-color-accent); color: #fff; }
+
+.vk-field { display: grid; gap: 0.35rem; }
+.vk-label { color: var(--vk-color-muted); font-size: 0.875rem; }
+.vk-device-picker,
+.vk-text-input { padding: 0.6rem 0.7rem; }
+
+.vk-transcript {
+  display: grid;
+  gap: var(--vk-space);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vk-transcript-entry {
+  border-radius: var(--vk-radius);
+  max-width: 85%;
+  padding: 0.7rem 0.85rem;
+}
+
+.vk-transcript-entry[data-role="user"] {
+  background: color-mix(in srgb, var(--vk-color-accent) 12%, transparent);
+  justify-self: end;
+}
+
+.vk-transcript-entry[data-role="agent"] {
+  border: 1px solid var(--vk-color-border);
+  justify-self: start;
+}
+
+.vk-transcript-entry[data-state="partial"] { opacity: 0.65; }
+.vk-transcript-empty { color: var(--vk-color-muted); }
+
+.vk-visualizer {
+  align-items: center;
+  display: flex;
+  gap: 0.2rem;
+  height: 2rem;
+}
+
+.vk-visualizer-bar {
+  background: var(--vk-color-accent);
+  border-radius: 999px;
+  height: calc(var(--vk-level) * 100%);
+  min-height: 0.2rem;
+  transition: height 100ms ease;
+  width: 0.2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vk-visualizer-bar { transition: none; }
+}
+
+.vk-text-form { display: flex; gap: 0.5rem; }
+.vk-text-input { flex: 1; min-width: 0; }
+.vk-suggestions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+.vk-approval-dialog {
+  background: var(--vk-color-bg);
+  border: 1px solid var(--vk-color-border);
+  border-radius: var(--vk-radius);
+  color: var(--vk-color-fg);
+  max-width: min(32rem, calc(100vw - 2rem));
+  padding: 1.25rem;
+}
+
+.vk-tool-arguments { max-height: 14rem; overflow: auto; }
+.vk-dialog-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+.vk-quality { align-items: center; display: inline-flex; gap: 0.4rem; }
+.vk-quality-dot { background: var(--vk-color-muted); border-radius: 50%; height: 0.6rem; width: 0.6rem; }
+.vk-quality[data-state="excellent"] .vk-quality-dot,
+.vk-quality[data-state="good"] .vk-quality-dot { background: #16803c; }
+.vk-quality[data-state="poor"] .vk-quality-dot { background: #d97706; }
+.vk-quality[data-state="lost"] .vk-quality-dot { background: var(--vk-color-danger); }
+.vk-quality-latency { color: var(--vk-color-muted); font-size: 0.8rem; }
+
+.vk-event-timeline {
+  display: grid;
+  font: 0.8rem ui-monospace, monospace;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vk-event-timeline li { display: flex; gap: 0.75rem; }
+.vk-event-timeline time { color: var(--vk-color-muted); }
+
+.vk-orb {
+  align-items: center;
+  aspect-ratio: 1;
+  background: color-mix(in srgb, var(--vk-color-accent) 15%, transparent);
+  border-radius: 50%;
+  display: inline-flex;
+  justify-content: center;
+  width: 5rem;
+}
+
+.vk-orb-core {
+  background: var(--vk-color-accent);
+  border-radius: inherit;
+  height: 52%;
+  opacity: 0.7;
+  transform: scale(0.9);
+  transition: transform 180ms ease, opacity 180ms ease;
+  width: 52%;
+}
+
+.vk-orb[data-state="speaking"] .vk-orb-core { opacity: 1; transform: scale(1.15); }
+.vk-orb[data-state="listening"] .vk-orb-core { opacity: 0.85; transform: scale(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .vk-orb-core { transition: none; }
+}

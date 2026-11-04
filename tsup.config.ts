@@ -3,6 +3,7 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: [
     'src/index.ts',
+    'src/v1.ts',
     'src/server.ts',
     'src/events.ts',
     'src/toolkit.ts',
@@ -18,6 +19,7 @@ export default defineConfig({
   ],
   format: ['cjs', 'esm'],
   dts: true,
+  clean: true,
   external: [
     'react',
     'react-dom',
