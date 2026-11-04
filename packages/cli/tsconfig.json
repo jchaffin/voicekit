@@ -2,10 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "..",
-    "outDir": "dist",
-    "paths": {
-      "@jchaffin/voicekit-deploy": ["../deploy/src/index.ts"]
-    }
+    "outDir": "dist"
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "../deploy/src/**/*.ts"],
   "exclude": ["dist"]
