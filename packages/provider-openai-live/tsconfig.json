@@ -1,13 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
-    "paths": {
-      "@jchaffin/voicekit-protocol": [
-        "packages/protocol/dist/index.d.ts"
-      ]
-    }
+    "rootDir": "../..",
+    "outDir": "dist"
   },
   "include": [
     "src/**/*.ts"
