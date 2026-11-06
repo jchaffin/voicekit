@@ -21,7 +21,17 @@ the alpha. New applications should start with:
 - [Policy and lifecycle](./docs/policy-and-lifecycle.md)
 - [One-shot deployment](./docs/one-shot-deploy.md)
 - [Migration from 0.4](./docs/migration-from-0.4.md)
+- [GPT-Live, Realtime, and Eleven Realtime](./docs/gpt-live-and-realtime.md)
+- [Experiments](./docs/experiments.md)
+- [LiveKit named deployments](./docs/livekit-deployments.md)
+- [Migration from alpha.0 to alpha.1](./docs/migration-alpha.0-to-alpha.1.md)
 - [Stable v1 release gates](./docs/stable-v1-release-gates.md)
+
+Alpha.1 adds GPT-Live full-duplex delegation, cross-provider experiment routing,
+ElevenAgents native experiment ownership, LiveKit named deployment dispatch,
+accessible experiment/delegation React UI, and reusable offline certification.
+Offline conformance does not imply provider network certification; credentialed
+entries are skipped when their secret references are absent.
 
 ## Installation
 

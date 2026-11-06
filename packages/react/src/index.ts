@@ -21,3 +21,51 @@ export {
   type VoiceSessionStoreOptions,
   type VoiceSessionTransport,
 } from './store.js';
+export {
+  ExperimentProvider,
+  useExperiment,
+  useExperimentSelector,
+  useExperimentStore,
+  type ExperimentProviderProps,
+} from './experiment-react.js';
+export {
+  ExperimentStore,
+  createExperimentStore,
+  getExperimentAssignmentDeviation,
+  type ExperimentAction,
+  type ExperimentActions,
+  type ExperimentAdapter,
+  type ExperimentAssignment,
+  type ExperimentDefinition,
+  type ExperimentExposure,
+  type ExperimentGuardrailDefinition,
+  type ExperimentGuardrailState,
+  type ExperimentMetricDefinition,
+  type ExperimentOutcome,
+  type ExperimentSnapshot,
+  type ExperimentState,
+  type ExperimentStatus,
+  type ExperimentStoreOptions,
+  type ExperimentVariant,
+  type GuardrailStatus,
+} from './experiment.js';
+export {
+  DelegationProvider,
+  useDelegation,
+  useDelegationSelector,
+  useDelegationStore,
+  type DelegationProviderProps,
+} from './delegation-react.js';
+export {
+  DelegationStore,
+  createDelegationStore,
+  type DelegationActions,
+  type DelegationConversationStatus,
+  type DelegationSnapshot,
+  type DelegationState,
+  type DelegationStoreOptions,
+  type DelegationTask,
+  type DelegationTaskStatus,
+  type DelegationTimelineEvent,
+  type DelegationTransport,
+} from './delegation.js';

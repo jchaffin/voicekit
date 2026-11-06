@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-react",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Headless React bindings for VoiceKit",
   "license": "MIT",
   "type": "module",
@@ -31,7 +31,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@jchaffin/voicekit-protocol": "1.0.0-alpha.0"
+    "@jchaffin/voicekit-protocol": "1.0.0-alpha.1"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

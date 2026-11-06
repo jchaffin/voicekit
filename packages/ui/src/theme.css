@@ -171,3 +171,194 @@
 @media (prefers-reduced-motion: reduce) {
   .vk-orb-core { transition: none; }
 }
+
+.vk-card {
+  border: 1px solid var(--vk-color-border);
+  border-radius: var(--vk-radius);
+  padding: 1rem;
+}
+
+.vk-card h2,
+.vk-card h3,
+.vk-card h4,
+.vk-card p { margin-top: 0; }
+
+.vk-card-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.vk-card-header > :first-child { margin: 0; }
+.vk-muted { color: var(--vk-color-muted); }
+
+.vk-status-badge,
+.vk-routing-badge {
+  align-items: center;
+  border: 1px solid var(--vk-color-border);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.8rem;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  text-transform: capitalize;
+}
+
+.vk-status-badge[data-state="healthy"],
+.vk-status-badge[data-state="completed"],
+.vk-status-badge[data-state="promoted"] { border-color: #16803c; color: #11632f; }
+.vk-status-badge[data-state="warning"],
+.vk-status-badge[data-state="cancelling"] { border-color: #d97706; color: #9a5305; }
+.vk-status-badge[data-state="breached"],
+.vk-status-badge[data-state="failed"],
+.vk-status-badge[data-state="rolled-back"] { border-color: var(--vk-color-danger); color: var(--vk-color-danger); }
+
+.vk-stat-list {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  margin-bottom: 0;
+}
+
+.vk-stat-list div,
+.vk-assignment-detail dl div { display: grid; gap: 0.2rem; }
+.vk-stat-list dt,
+.vk-assignment-detail dt { color: var(--vk-color-muted); font-size: 0.8rem; }
+.vk-stat-list dd,
+.vk-assignment-detail dd { margin: 0; }
+.vk-stat-list dd { font-size: 1.4rem; font-weight: 700; }
+
+.vk-traffic-editor fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.vk-traffic-editor legend {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.vk-traffic-fields {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+}
+
+.vk-number-field {
+  align-items: center;
+  display: flex;
+  position: relative;
+}
+
+.vk-number-field input,
+.vk-lifecycle-controls select {
+  border: 1px solid var(--vk-color-border);
+  border-radius: var(--vk-radius);
+  color: var(--vk-color-fg);
+  font: inherit;
+  padding: 0.55rem 1.8rem 0.55rem 0.65rem;
+  width: 100%;
+}
+
+.vk-number-field span {
+  color: var(--vk-color-muted);
+  pointer-events: none;
+  position: absolute;
+  right: 0.65rem;
+}
+
+.vk-number-field input:focus-visible,
+.vk-lifecycle-controls select:focus-visible {
+  outline: 2px solid var(--vk-color-accent);
+  outline-offset: 2px;
+}
+
+.vk-traffic-total { margin-top: 0.75rem; }
+.vk-traffic-total[data-state="invalid"] { color: var(--vk-color-danger); }
+.vk-field-message { color: var(--vk-color-muted); font-size: 0.85rem; }
+.vk-field-message[role="alert"] { color: var(--vk-color-danger); }
+
+.vk-lifecycle-controls {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.vk-promote-field { min-width: 10rem; }
+.vk-confirmation-message { flex-basis: 100%; min-height: 1.25em; }
+.vk-lifecycle-rollback { color: var(--vk-color-danger); }
+
+.vk-funnel,
+.vk-delegation-timeline {
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.vk-funnel-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+.vk-semantic-bar {
+  background: color-mix(in srgb, var(--vk-color-muted) 18%, transparent);
+  border-radius: 999px;
+  height: 0.55rem;
+  margin-top: 0.25rem;
+  overflow: hidden;
+}
+
+.vk-semantic-bar span {
+  background: var(--vk-color-accent);
+  display: block;
+  height: 100%;
+}
+
+.vk-metric-value { font-size: 1.65rem; font-weight: 700; }
+.vk-metric-card[data-state="favorable"] { border-color: #16803c; }
+.vk-metric-card[data-state="unfavorable"],
+.vk-guardrail-card[data-state="breached"],
+.vk-assignment-detail[data-state="deviated"] { border-color: var(--vk-color-danger); }
+
+.vk-assignment-detail dl {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.vk-routing-dot {
+  background: currentColor;
+  border-radius: 50%;
+  height: 0.5rem;
+  width: 0.5rem;
+}
+
+.vk-routing-badge[data-state="fallback"],
+.vk-routing-badge[data-state="shadow"] { color: #9a5305; }
+.vk-routing-badge[data-state="experiment"],
+.vk-routing-badge[data-state="delegated"] { color: var(--vk-color-accent); }
+
+.vk-delegation-timeline li {
+  align-items: baseline;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: max-content 1fr;
+}
+
+.vk-delegation-timeline time {
+  color: var(--vk-color-muted);
+  font: 0.8rem ui-monospace, monospace;
+}
+
+.vk-live-region {
+  border-left: 3px solid var(--vk-color-accent);
+  padding: 0.5rem 0.75rem;
+}
+
+.vk-live-region[data-state="error"] { border-left-color: var(--vk-color-danger); }

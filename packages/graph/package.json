@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-graph",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Typed agent graphs and atomic handoff coordination for VoiceKit",
   "license": "MIT",
   "type": "module",
@@ -25,7 +25,7 @@
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@jchaffin/voicekit-protocol": "1.0.0-alpha.0"
+    "@jchaffin/voicekit-protocol": "1.0.0-alpha.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

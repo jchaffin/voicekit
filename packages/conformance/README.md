@@ -13,3 +13,5 @@ const results = await runAdapterSuites({
 ```
 
 Live certification is explicit and secret-safe. Register secret *names*, never values. `runCertifications` reports the entry as skipped when any reference is absent, and only passes selected values to the fixture factory.
+
+Alpha.1 also exports `alpha1SemanticSuites`: reusable offline contracts for GPT-Live duplex/delegation behavior, experiment reconnect/exposure/fallback idempotency, ElevenAgents native-versus-managed routing, and LiveKit named deployments. Implement `run(scenario)` on the fixture and pass these suites to `runAdapterSuites`. Passing them certifies fixture behavior only, not a provider network.

@@ -15,8 +15,10 @@ export * as telemetry from '@jchaffin/voicekit-telemetry';
 export * as persistence from '@jchaffin/voicekit-persistence';
 export * as simulation from '@jchaffin/voicekit-simulation';
 export * as conformance from '@jchaffin/voicekit-conformance';
+export * as experiments from '@jchaffin/voicekit-experiments';
 
 export * as openai from '@jchaffin/voicekit-provider-openai';
+export * as openaiLive from '@jchaffin/voicekit-provider-openai-live';
 export * as elevenlabs from '@jchaffin/voicekit-provider-elevenlabs';
 export * as deepgram from '@jchaffin/voicekit-provider-deepgram';
 export * as assemblyai from '@jchaffin/voicekit-provider-assemblyai';

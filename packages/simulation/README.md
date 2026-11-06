@@ -19,3 +19,5 @@ assertSimulation(journal.read(), firstAudioUnder(300), noPolicyViolations());
 ```
 
 The package includes synthetic PCM fixtures, scripted callers, fake transcript/model/TTS providers, deterministic network and tool faults, interruption/overlap scenarios, immutable journal snapshots, assertions, and timing-preserving replay.
+
+Alpha.1 adds `FullDuplexSimulation`, `DelegatedTaskSimulation`, and `ExperimentFallbackSimulation` for overlapping listen/speak windows, explicit continue-versus-cancel interruption policy, terminal-task idempotency, and exactly-once fallback exposure accounting.

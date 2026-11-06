@@ -1,6 +1,167 @@
 export type Awaitable<T> = T | Promise<T>;
 export type TokenSource = (signal?: AbortSignal) => Awaitable<string>;
 
+export type ElevenAgentsId = string;
+
+export interface ElevenAgentsVersion {
+  id: ElevenAgentsId;
+  agentId: ElevenAgentsId;
+  createdAt?: string;
+  label?: string;
+}
+
+export interface ElevenAgentsBranch {
+  id: ElevenAgentsId;
+  agentId: ElevenAgentsId;
+  name: string;
+  currentVersionId?: ElevenAgentsId;
+}
+
+export interface ElevenAgentsDeployment {
+  id: ElevenAgentsId;
+  agentId: ElevenAgentsId;
+  branchId: ElevenAgentsId;
+  versionId: ElevenAgentsId;
+  environment?: string;
+}
+
+export interface ElevenAgentsExperimentVariant {
+  branchId: ElevenAgentsId;
+  versionId: ElevenAgentsId;
+  percentage: number;
+  label?: string;
+}
+
+export interface ElevenAgentsExperiment {
+  id: ElevenAgentsId;
+  agentId: ElevenAgentsId;
+  variants: readonly ElevenAgentsExperimentVariant[];
+}
+
+export type ElevenAgentsRouting =
+  | {
+      mode: "provider-assigned";
+      agentId: ElevenAgentsId;
+      experimentId?: ElevenAgentsId;
+    }
+  | {
+      mode: "voicekit-explicit";
+      agentId: ElevenAgentsId;
+      branchId: ElevenAgentsId;
+      versionId: ElevenAgentsId;
+      experimentId?: ElevenAgentsId;
+      assignmentId?: string;
+    };
+
+export interface ElevenAgentsAttribution {
+  agentId: ElevenAgentsId;
+  branchId: ElevenAgentsId;
+  versionId: ElevenAgentsId;
+  conversationId?: ElevenAgentsId;
+  experimentId?: ElevenAgentsId;
+  assignmentId?: string;
+  routingMode: ElevenAgentsRouting["mode"];
+}
+
+export type ElevenAgentsRouteDescriptor =
+  | {
+      kind: "signed-url";
+      method: "GET";
+      agentId: ElevenAgentsId;
+      routing: ElevenAgentsRouting;
+    }
+  | {
+      kind: "webrtc-token";
+      method: "POST";
+      agentId: ElevenAgentsId;
+      routing: ElevenAgentsRouting;
+    }
+  | {
+      kind: "initiation-webhook";
+      method: "POST";
+      agentId: ElevenAgentsId;
+      routing: ElevenAgentsRouting;
+      webhookId?: ElevenAgentsId;
+    };
+
+export interface ElevenAgentsConversationFilters {
+  agentId?: ElevenAgentsId;
+  branchId?: ElevenAgentsId;
+  versionId?: ElevenAgentsId;
+  deploymentId?: ElevenAgentsId;
+  experimentId?: ElevenAgentsId;
+  assignmentId?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface ElevenAgentsAnalyticsFilters extends ElevenAgentsConversationFilters {
+  groupBy?: "agent" | "branch" | "version" | "deployment" | "experiment";
+}
+
+export const elevenAgentsCustomToolVersionCaveat =
+  "Custom tools are shared agent resources; changing one can affect multiple branches or versions. Version tool implementations separately when isolation is required.";
+
+export interface ElevenAgentsCustomToolReference {
+  toolId: ElevenAgentsId;
+  sharedAcrossVersions: true;
+  caveat: typeof elevenAgentsCustomToolVersionCaveat;
+}
+
+export function defineElevenAgentsExperiment(
+  experiment: ElevenAgentsExperiment,
+): Readonly<ElevenAgentsExperiment> {
+  if (experiment.variants.length < 2) {
+    throw new Error("ElevenAgents experiments require at least two variants");
+  }
+  const total = experiment.variants.reduce((sum, variant) => {
+    if (!Number.isFinite(variant.percentage) || variant.percentage <= 0) {
+      throw new Error("ElevenAgents experiment percentages must be positive finite numbers");
+    }
+    return sum + variant.percentage;
+  }, 0);
+  if (Math.abs(total - 100) > Number.EPSILON * 100) {
+    throw new Error(`ElevenAgents experiment percentages must total 100; received ${total}`);
+  }
+  const targets = new Set(experiment.variants.map(({ branchId, versionId }) => `${branchId}\0${versionId}`));
+  if (targets.size !== experiment.variants.length) {
+    throw new Error("ElevenAgents experiment variants must target unique branch/version pairs");
+  }
+  return Object.freeze({
+    ...experiment,
+    variants: Object.freeze(experiment.variants.map((variant) => Object.freeze({ ...variant }))),
+  });
+}
+
+export function createElevenAgentsRouteDescriptor<T extends ElevenAgentsRouteDescriptor>(
+  descriptor: T,
+): Readonly<T> {
+  if (descriptor.agentId !== descriptor.routing.agentId) {
+    throw new Error("ElevenAgents route agentId must match its routing agentId");
+  }
+  return Object.freeze({ ...descriptor });
+}
+
+export function readElevenAgentsAttribution(
+  value: unknown,
+  routingMode: ElevenAgentsRouting["mode"],
+): ElevenAgentsAttribution {
+  const record = asRecord(value);
+  const attribution = asRecord(record.attribution ?? record);
+  const agentId = requiredString(attribution.agentId ?? attribution.agent_id, "agentId");
+  const branchId = requiredString(attribution.branchId ?? attribution.branch_id, "branchId");
+  const versionId = requiredString(attribution.versionId ?? attribution.version_id, "versionId");
+  return {
+    agentId,
+    branchId,
+    versionId,
+    routingMode,
+    ...optionalStringFields(attribution),
+  };
+}
+
 export const elevenLabsCapabilities = {
   realtime: true,
   stt: true,
@@ -53,6 +214,7 @@ export function createElevenLabsRealtimeProvider(config: {
   const providerOptions = Object.freeze({ ...config.providerOptions });
   return {
     name: "elevenlabs",
+    product: "eleven-realtime" as const,
     capabilities: elevenLabsCapabilities,
     providerOptions,
     async connect(input: { signal?: AbortSignal } = {}) {
@@ -154,6 +316,20 @@ export function normalizeElevenLabsEvent(raw: unknown): ElevenLabsEvent {
 }
 
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
+function requiredString(value: unknown, name: string): string {
+  if (typeof value !== "string" || !value) throw new Error(`Missing ElevenAgents attribution ${name}`);
+  return value;
+}
+function optionalStringFields(value: Record<string, unknown>): Pick<ElevenAgentsAttribution, "conversationId" | "experimentId" | "assignmentId"> {
+  const result: Pick<ElevenAgentsAttribution, "conversationId" | "experimentId" | "assignmentId"> = {};
+  const conversationId = value.conversationId ?? value.conversation_id;
+  const experimentId = value.experimentId ?? value.experiment_id;
+  const assignmentId = value.assignmentId ?? value.assignment_id;
+  if (typeof conversationId === "string" && conversationId) result.conversationId = conversationId;
+  if (typeof experimentId === "string" && experimentId) result.experimentId = experimentId;
+  if (typeof assignmentId === "string" && assignmentId) result.assignmentId = assignmentId;
+  return result;
+}
 function parseJson(value: unknown): unknown { if (typeof value !== "string") return value; try { return JSON.parse(value); } catch { return value; } }
 function toError(value: unknown): Error { return value instanceof Error ? value : new Error(typeof value === "string" ? value : JSON.stringify(value)); }
 function decodeAudio(value: unknown): Uint8Array {

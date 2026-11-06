@@ -3,6 +3,7 @@
   "compilerOptions": {
     "noEmit": true,
     "rootDir": "..",
+    "jsx": "react-jsx",
     "types": ["node"],
     "paths": {
       "@jchaffin/voicekit-core": ["../packages/core/src/index.ts"],
@@ -10,10 +11,15 @@
       "@jchaffin/voicekit-pipeline": ["../packages/pipeline/src/index.ts"],
       "@jchaffin/voicekit-policy": ["../packages/policy/src/index.ts"],
       "@jchaffin/voicekit-protocol": ["../packages/protocol/src/index.ts"],
+      "@jchaffin/voicekit-experiments": ["../packages/experiments/src/index.ts"],
       "@jchaffin/voicekit-provider-elevenlabs": ["../packages/provider-elevenlabs/src/index.ts"],
       "@jchaffin/voicekit-provider-openai": ["../packages/provider-openai/src/index.ts"],
+      "@jchaffin/voicekit-provider-openai-live": ["../packages/provider-openai-live/src/index.ts"],
+      "@jchaffin/voicekit-react": ["../packages/react/src/index.ts"],
+      "@jchaffin/voicekit-ui": ["../packages/ui/src/index.ts"],
+      "@jchaffin/voicekit-transport-livekit": ["../packages/transport-livekit/src/index.ts"],
       "@jchaffin/voicekit-session": ["../packages/session/src/index.ts"]
     }
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

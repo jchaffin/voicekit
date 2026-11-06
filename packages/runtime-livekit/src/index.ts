@@ -1,17 +1,70 @@
 export type Awaitable<T> = T | Promise<T>;
 
+export const liveKitAgentSdkMinimums = {
+  python: "1.6.0",
+  node: "1.7.1",
+  nodePackage: "@livekit/agents",
+} as const;
+
+export const liveKitDeploymentSemantics = {
+  defaultEnvironment: "production",
+  nonProductionColdStart: true,
+  redeployBehavior: "disconnect-immediately",
+  rollbackSupported: false,
+  secretsScope: "shared",
+  insightsMetrics: "production-only",
+  sdkMinimums: liveKitAgentSdkMinimums,
+} as const;
+
+export type LiveKitRuntimeJson =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly LiveKitRuntimeJson[]
+  | { readonly [key: string]: LiveKitRuntimeJson };
+
+export interface LiveKitRuntimeDeployment {
+  agentName: string;
+  deploymentName: string;
+  environment: "production" | "non-production";
+  metadata: Readonly<Record<string, LiveKitRuntimeJson>>;
+  experimentAssignmentId?: string;
+}
+
+export function defineLiveKitRuntimeDeployment(
+  input: Omit<LiveKitRuntimeDeployment, "environment" | "metadata"> & {
+    environment?: LiveKitRuntimeDeployment["environment"];
+    metadata?: Readonly<Record<string, LiveKitRuntimeJson>>;
+  },
+): Readonly<LiveKitRuntimeDeployment> {
+  if (!input.agentName) throw new Error("LiveKit runtime deployment requires an agent name");
+  if (!input.deploymentName) throw new Error("LiveKit runtime deployment requires a deployment name");
+  assertJson(input.metadata ?? {}, "metadata");
+  return Object.freeze({
+    ...input,
+    environment: input.environment ?? "production",
+    metadata: Object.freeze({ ...(input.metadata ?? {}) }),
+  });
+}
+
 export const liveKitRuntimeCapabilities = {
   hosted: true,
   audio: true,
   interruption: true,
   tools: true,
   transport: "livekit",
+  deployment: liveKitDeploymentSemantics,
 } as const;
 
 export interface LiveKitRuntimeOptions {
   protocolVersion?: "1";
   dataTopic?: string;
   agentName?: string;
+  deploymentName?: string;
+  environment?: LiveKitRuntimeDeployment["environment"];
+  metadata?: Readonly<Record<string, LiveKitRuntimeJson>>;
+  experimentAssignmentId?: string;
   instructions?: string;
   providerOptions?: Record<string, unknown>;
 }
@@ -107,9 +160,17 @@ export function createLiveKitRuntime(config: {
     raw: config.transport.raw ?? config.transport,
     onEvent(listener: (event: LiveKitRuntimeEvent) => void) { listeners.add(listener); return () => listeners.delete(listener); },
     async start() {
+      if (providerOptions.metadata) assertJson(providerOptions.metadata, "metadata");
       await send({
         type: "session.configure",
-        agent: { name: providerOptions.agentName, instructions: providerOptions.instructions },
+        agent: {
+          name: providerOptions.agentName,
+          deployment: providerOptions.deploymentName,
+          environment: providerOptions.environment ?? "production",
+          metadata: providerOptions.metadata,
+          experimentAssignmentId: providerOptions.experimentAssignmentId,
+          instructions: providerOptions.instructions,
+        },
         tools: [...tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters })),
         ...providerOptions.providerOptions,
       });
@@ -180,3 +241,19 @@ function parseJson(value: unknown): unknown { if (typeof value !== "string") ret
 function toError(value: unknown): Error { return value instanceof Error ? value : new Error(typeof value === "string" ? value : JSON.stringify(value)); }
 function toBase64(value: Uint8Array): string { return typeof Buffer !== "undefined" ? Buffer.from(value).toString("base64") : btoa(String.fromCharCode(...value)); }
 function fromBase64(value: string): Uint8Array { return typeof Buffer !== "undefined" ? Uint8Array.from(Buffer.from(value, "base64")) : Uint8Array.from(atob(value), (char) => char.charCodeAt(0)); }
+function assertJson(value: unknown, path: string): asserts value is LiveKitRuntimeJson {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return;
+  if (typeof value === "number") {
+    if (Number.isFinite(value)) return;
+    throw new Error(`LiveKit runtime ${path} must contain finite JSON numbers`);
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertJson(item, `${path}[${index}]`));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) assertJson(item, `${path}.${key}`);
+    return;
+  }
+  throw new Error(`LiveKit runtime ${path} must be JSON-serializable`);
+}

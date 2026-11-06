@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-cli",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Command-line deployment workflow for VoiceKit",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -34,7 +34,7 @@
   },
   "license": "MIT",
   "dependencies": {
-    "@jchaffin/voicekit-deploy": "1.0.0-alpha.0"
+    "@jchaffin/voicekit-deploy": "1.0.0-alpha.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",

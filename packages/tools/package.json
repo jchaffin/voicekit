@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-tools",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Typed, policy-aware tool execution for VoiceKit",
   "license": "MIT",
   "type": "module",
@@ -25,7 +25,7 @@
     "prepublishOnly": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@jchaffin/voicekit-protocol": "1.0.0-alpha.0",
+    "@jchaffin/voicekit-protocol": "1.0.0-alpha.1",
     "zod": ">=3.25.0 <5"
   },
   "devDependencies": {

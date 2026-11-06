@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {
   FaultyNetwork,
+  DelegatedTaskSimulation,
+  ExperimentFallbackSimulation,
+  FullDuplexSimulation,
   SimulationJournal,
   VirtualClock,
   assertSimulation,
@@ -55,4 +58,45 @@ test("journal assertions and replay preserve order", () => {
   replay(snapshot, replayClock, { onEvent: (event) => { seen.push(event.sequence); } });
   replayClock.runAll();
   assert.deepEqual(seen, [1, 2, 3, 4]);
+});
+
+test("full-duplex simulation permits overlapping listen and speak", () => {
+  const clock = new VirtualClock();
+  const duplex = new FullDuplexSimulation(clock);
+  duplex.set("listening", true, "user-1");
+  clock.advanceBy(20);
+  duplex.set("speaking", true, "agent-1");
+  assert.equal(duplex.overlapping, true);
+  clock.advanceBy(30);
+  duplex.set("listening", false, "user-1");
+  assert.equal(duplex.overlapping, false);
+  assert.deepEqual(duplex.transitions().map((event) => event.atMs), [0, 20, 50]);
+});
+
+test("delegated task interruption follows cancellation policy idempotently", () => {
+  const clock = new VirtualClock();
+  const tasks = new DelegatedTaskSimulation(clock);
+  tasks.start("continue");
+  assert.equal(tasks.interrupt("continue", "continue")?.state, "running");
+  tasks.start("cancel");
+  clock.advanceBy(25);
+  const cancelled = tasks.interrupt("cancel", "cancel");
+  assert.equal(cancelled?.state, "cancelled");
+  assert.equal(cancelled?.cancellationReason, "voice_interrupted");
+  assert.equal(tasks.complete("cancel"), cancelled);
+  assert.equal(tasks.cancel("cancel"), cancelled);
+});
+
+test("experiment fallback preserves assignment and deduplicates exposure", () => {
+  const fallbacks = new ExperimentFallbackSimulation();
+  const first = fallbacks.record({
+    assignmentId: "assignment-1",
+    intendedVariantId: "gpt-live",
+    actualProvider: "livekit",
+    exposureId: "call-1",
+    fallback: true,
+  });
+  const retry = fallbacks.record({ ...first, actualProvider: "elevenagents" });
+  assert.equal(retry, first);
+  assert.deepEqual(fallbacks.read(), [first]);
 });

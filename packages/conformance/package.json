@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-conformance",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Reusable adapter conformance suites and live certification runner for VoiceKit",
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,10 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsup src/index.ts src/bin.ts --format esm,cjs --dts --clean --platform node --target es2022 --no-config",
     "typecheck": "tsc --noEmit",

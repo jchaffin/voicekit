@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-deploy",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Provider-agnostic deployment planning and execution for VoiceKit",
   "type": "module",
   "main": "./dist/index.cjs",

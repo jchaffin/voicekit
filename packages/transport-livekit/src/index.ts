@@ -1,6 +1,67 @@
 export type Awaitable<T> = T | Promise<T>;
 export type TokenSource = (signal?: AbortSignal) => Awaitable<string>;
 
+export type LiveKitJson =
+  | null
+  | boolean
+  | number
+  | string
+  | readonly LiveKitJson[]
+  | { readonly [key: string]: LiveKitJson };
+
+export type LiveKitDeploymentEnvironment = "production" | "non-production";
+
+export interface LiveKitExplicitDispatch {
+  agentName: string;
+  deploymentName: string;
+  environment: LiveKitDeploymentEnvironment;
+  metadata: Readonly<Record<string, LiveKitJson>>;
+  experimentAssignmentId?: string;
+}
+
+export type LiveKitDispatchDescriptor =
+  | {
+      kind: "api-dispatch";
+      dispatch: LiveKitExplicitDispatch;
+      roomName?: string;
+      participantIdentity?: string;
+    }
+  | {
+      kind: "token-dispatch";
+      dispatch: LiveKitExplicitDispatch;
+      roomName?: string;
+      participantIdentity?: string;
+    }
+  | {
+      kind: "sip-dispatch";
+      dispatch: LiveKitExplicitDispatch;
+      trunkId?: string;
+      calledNumber?: string;
+    };
+
+export function defineLiveKitDispatch(
+  input: Omit<LiveKitExplicitDispatch, "environment" | "metadata"> & {
+    environment?: LiveKitDeploymentEnvironment;
+    metadata?: Readonly<Record<string, LiveKitJson>>;
+  },
+): Readonly<LiveKitExplicitDispatch> {
+  if (!input.agentName) throw new Error("LiveKit dispatch requires an agent name");
+  if (!input.deploymentName) throw new Error("LiveKit dispatch requires a named deployment");
+  assertJson(input.metadata ?? {}, "metadata");
+  return Object.freeze({
+    ...input,
+    environment: input.environment ?? "production",
+    metadata: Object.freeze({ ...(input.metadata ?? {}) }),
+  });
+}
+
+export function createLiveKitDispatchDescriptor<T extends LiveKitDispatchDescriptor>(
+  descriptor: T,
+): Readonly<T> {
+  assertJson(descriptor.dispatch.metadata, "dispatch.metadata");
+  return Object.freeze({ ...descriptor });
+}
+
 export const liveKitTransportCapabilities = {
   audioInput: true,
   audioOutput: true,
@@ -142,3 +203,19 @@ function toBytes(value: unknown): Uint8Array {
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" ? value as Record<string, unknown> : {}; }
 function toError(value: unknown): Error { return value instanceof Error ? value : new Error(typeof value === "string" ? value : JSON.stringify(value)); }
 function throwIfAborted(signal?: AbortSignal): void { if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError"); }
+function assertJson(value: unknown, path: string): asserts value is LiveKitJson {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return;
+  if (typeof value === "number") {
+    if (Number.isFinite(value)) return;
+    throw new Error(`LiveKit ${path} must contain finite JSON numbers`);
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertJson(item, `${path}[${index}]`));
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) assertJson(item, `${path}.${key}`);
+    return;
+  }
+  throw new Error(`LiveKit ${path} must be JSON-serializable`);
+}

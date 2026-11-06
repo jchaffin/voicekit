@@ -87,6 +87,110 @@ export interface AdapterSuite {
   readonly cases: readonly ConformanceCase[];
 }
 
+export type SemanticEvent =
+  | { readonly type: "listen.start" | "listen.stop" | "speak.start" | "speak.stop"; readonly turnId: string; readonly reason?: string }
+  | { readonly type: "delegation.requested" | "delegation.started" | "delegation.completed" | "delegation.cancelled"; readonly delegationId: string }
+  | { readonly type: "interruption"; readonly delegationId?: string }
+  | { readonly type: "assignment"; readonly assignmentId: string; readonly variantId: string; readonly owner: "native" | "voicekit" }
+  | { readonly type: "exposure"; readonly assignmentId: string; readonly exposureId: string; readonly deviation?: "fallback" }
+  | { readonly type: "route"; readonly owner: "native" | "voicekit"; readonly branchId?: string }
+  | { readonly type: "deployment"; readonly agentName: string; readonly deploymentName: string; readonly environment: "production" | "non-production" };
+
+export interface SemanticFixture {
+  run(scenario: string): Awaitable<readonly SemanticEvent[]>;
+}
+
+function semanticCase(name: string, scenario: string, verify: (events: readonly SemanticEvent[]) => void): ConformanceCase {
+  return {
+    name,
+    async run(fixture) {
+      const semantic = fixture as ConformanceFixture & Partial<SemanticFixture>;
+      expect(typeof semantic.run === "function", "semantic fixture must implement run(scenario)");
+      verify(await semantic.run(scenario));
+    },
+  };
+}
+
+const count = (events: readonly SemanticEvent[], type: SemanticEvent["type"]) =>
+  events.filter((event) => event.type === type).length;
+
+/** Offline contract for GPT-Live duplex and delegated Responses/client work. */
+export const gptLiveSemanticsSuite: AdapterSuite = {
+  name: "GPT-Live semantics",
+  cases: [
+    semanticCase("permits overlapping listening and speaking", "gpt-live/full-duplex", (events) => {
+      const listen = events.findIndex((event) => event.type === "listen.start");
+      const speak = events.findIndex((event) => event.type === "speak.start");
+      const listenStop = events.findIndex((event) => event.type === "listen.stop");
+      expect(listen >= 0 && speak > listen && (listenStop < 0 || speak < listenStop), "listening and speaking never overlapped");
+    }),
+    semanticCase("deduplicates delegation terminal events", "gpt-live/delegation-idempotency", (events) => {
+      expect(count(events, "delegation.requested") === 1, "delegation was requested more than once");
+      expect(count(events, "delegation.started") === 1, "delegation was started more than once");
+      expect(count(events, "delegation.completed") === 1, "delegation completed more than once");
+    }),
+    semanticCase("cancels delegated work only when policy requests it", "gpt-live/interruption-cancellation", (events) => {
+      expect(count(events, "interruption") === 1, "interruption was not reported exactly once");
+      expect(count(events, "delegation.cancelled") === 1, "delegated backend cancellation was not idempotent");
+      expect(count(events, "delegation.completed") === 0, "cancelled delegation later completed");
+    }),
+  ],
+};
+
+/** Offline contract for sticky assignment and exactly-once exposure/fallback accounting. */
+export const experimentSemanticsSuite: AdapterSuite = {
+  name: "experiment semantics",
+  cases: [
+    semanticCase("pins assignment across reconnect", "experiment/reconnect", (events) => {
+      const assignments = events.filter((event): event is Extract<SemanticEvent, { type: "assignment" }> => event.type === "assignment");
+      expect(assignments.length >= 2, "scenario must include initial and reconnect decisions");
+      expect(assignments.every((event) => event.assignmentId === assignments[0]!.assignmentId && event.variantId === assignments[0]!.variantId), "reconnect changed assignment");
+    }),
+    semanticCase("records exposure once across retries", "experiment/exposure-idempotency", (events) => {
+      expect(count(events, "exposure") === 1, "exposure retry produced duplicate ledger events");
+    }),
+    semanticCase("preserves intended assignment on fallback", "experiment/fallback", (events) => {
+      const assignment = events.find((event): event is Extract<SemanticEvent, { type: "assignment" }> => event.type === "assignment");
+      const exposure = events.find((event): event is Extract<SemanticEvent, { type: "exposure" }> => event.type === "exposure");
+      expect(assignment && exposure?.assignmentId === assignment.assignmentId, "fallback replaced the assigned analysis unit");
+      expect(exposure?.deviation === "fallback", "fallback exposure omitted its routing deviation");
+    }),
+  ],
+};
+
+/** Provider-native ElevenAgents owns branch choice; managed routing supplies it explicitly. */
+export const elevenAgentsRoutingSuite: AdapterSuite = {
+  name: "ElevenAgents routing ownership",
+  cases: [
+    semanticCase("native routing omits explicit branch", "elevenagents/native", (events) => {
+      const route = events.find((event): event is Extract<SemanticEvent, { type: "route" }> => event.type === "route");
+      expect(route?.owner === "native" && route.branchId === undefined, "native routing must not inject a managed branch");
+    }),
+    semanticCase("managed routing pins explicit branch", "elevenagents/managed", (events) => {
+      const route = events.find((event): event is Extract<SemanticEvent, { type: "route" }> => event.type === "route");
+      expect(route?.owner === "voicekit" && Boolean(route.branchId), "managed routing must identify its branch");
+    }),
+  ],
+};
+
+/** Named LiveKit deployment dispatch must retain agent, deployment, and environment. */
+export const liveKitDeploymentSuite: AdapterSuite = {
+  name: "LiveKit named deployment",
+  cases: [semanticCase("round-trips named deployment descriptor", "livekit/named-deployment", (events) => {
+    const deployment = events.find((event): event is Extract<SemanticEvent, { type: "deployment" }> => event.type === "deployment");
+    expect(Boolean(deployment?.agentName), "deployment omitted agent name");
+    expect(Boolean(deployment?.deploymentName), "deployment omitted deployment name");
+    expect(deployment?.environment === "production" || deployment?.environment === "non-production", "deployment environment was invalid");
+  })],
+};
+
+export const alpha1SemanticSuites: readonly AdapterSuite[] = Object.freeze([
+  gptLiveSemanticsSuite,
+  experimentSemanticsSuite,
+  elevenAgentsRoutingSuite,
+  liveKitDeploymentSuite,
+]);
+
 const settle = async (fixture: ConformanceFixture): Promise<void> => {
   await fixture.settle?.();
   await Promise.resolve();

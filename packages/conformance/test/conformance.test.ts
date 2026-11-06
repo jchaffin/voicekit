@@ -5,6 +5,7 @@ import {
   type AdapterUnderTest,
   type ConformanceSession,
   type NormalizedAdapterEvent,
+  alpha1SemanticSuites,
   runAdapterSuites,
   runCertifications,
 } from "../src/index.js";
@@ -109,4 +110,56 @@ test("live registry skips entries whose secret references are absent", async () 
 
   const certified = await runCertifications(registry, { secrets: { FAKE_API_KEY: "test-only" } });
   assert.equal(certified[0]?.status, "passed");
+});
+
+test("alpha.1 semantic suites are reusable with deterministic fixtures", async () => {
+  const semanticFixture = {
+    ...fixture,
+    async run(scenario: string) {
+      switch (scenario) {
+        case "gpt-live/full-duplex":
+          return [
+            { type: "listen.start", turnId: "u1" },
+            { type: "speak.start", turnId: "a1" },
+            { type: "listen.stop", turnId: "u1" },
+          ] as const;
+        case "gpt-live/delegation-idempotency":
+          return [
+            { type: "delegation.requested", delegationId: "d1" },
+            { type: "delegation.started", delegationId: "d1" },
+            { type: "delegation.completed", delegationId: "d1" },
+          ] as const;
+        case "gpt-live/interruption-cancellation":
+          return [
+            { type: "delegation.requested", delegationId: "d1" },
+            { type: "delegation.started", delegationId: "d1" },
+            { type: "interruption", delegationId: "d1" },
+            { type: "delegation.cancelled", delegationId: "d1" },
+          ] as const;
+        case "experiment/reconnect":
+          return [
+            { type: "assignment", assignmentId: "a1", variantId: "v1", owner: "voicekit" },
+            { type: "assignment", assignmentId: "a1", variantId: "v1", owner: "voicekit" },
+          ] as const;
+        case "experiment/exposure-idempotency":
+          return [{ type: "exposure", assignmentId: "a1", exposureId: "e1" }] as const;
+        case "experiment/fallback":
+          return [
+            { type: "assignment", assignmentId: "a1", variantId: "v1", owner: "voicekit" },
+            { type: "exposure", assignmentId: "a1", exposureId: "e1", deviation: "fallback" },
+          ] as const;
+        case "elevenagents/native":
+          return [{ type: "route", owner: "native" }] as const;
+        case "elevenagents/managed":
+          return [{ type: "route", owner: "voicekit", branchId: "branch-1" }] as const;
+        case "livekit/named-deployment":
+          return [{ type: "deployment", agentName: "concierge", deploymentName: "alpha-1", environment: "production" }] as const;
+        default:
+          throw new Error(`Unknown scenario: ${scenario}`);
+      }
+    },
+  };
+  const results = await runAdapterSuites(semanticFixture, alpha1SemanticSuites);
+  assert.equal(results.length, 9);
+  assert.ok(results.every((result) => result.status === "passed"));
 });

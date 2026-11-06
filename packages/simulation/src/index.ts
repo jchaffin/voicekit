@@ -453,6 +453,91 @@ export function assertSimulation(events: readonly EventEnvelope[], ...assertions
   for (const assertion of assertions) assertion(events);
 }
 
+export type DuplexChannel = "listening" | "speaking";
+export interface DuplexTransition {
+  readonly atMs: number;
+  readonly channel: DuplexChannel;
+  readonly active: boolean;
+  readonly turnId: string;
+}
+
+/** Deterministic full-duplex state model; listening and speaking are independent channels. */
+export class FullDuplexSimulation {
+  readonly #clock: VirtualClock;
+  readonly #transitions: DuplexTransition[] = [];
+  readonly #active = new Map<DuplexChannel, string>();
+
+  constructor(clock: VirtualClock) { this.#clock = clock; }
+  set(channel: DuplexChannel, active: boolean, turnId: string): void {
+    if (active) this.#active.set(channel, turnId);
+    else if (this.#active.get(channel) === turnId) this.#active.delete(channel);
+    this.#transitions.push(Object.freeze({ atMs: this.#clock.now(), channel, active, turnId }));
+  }
+  get overlapping(): boolean { return this.#active.has("listening") && this.#active.has("speaking"); }
+  transitions(): readonly DuplexTransition[] { return [...this.#transitions]; }
+}
+
+export type DelegatedTaskState = "running" | "completed" | "cancelled";
+export interface DelegatedTaskSnapshot {
+  readonly id: string;
+  readonly state: DelegatedTaskState;
+  readonly cancellationReason?: string;
+  readonly terminalAtMs?: number;
+}
+
+/** Models application-owned delegated work separately from voice playback. */
+export class DelegatedTaskSimulation {
+  readonly #clock: VirtualClock;
+  readonly #tasks = new Map<string, DelegatedTaskSnapshot>();
+  constructor(clock: VirtualClock) { this.#clock = clock; }
+  start(id: string): DelegatedTaskSnapshot {
+    const existing = this.#tasks.get(id);
+    if (existing) return existing;
+    const task = Object.freeze({ id, state: "running" as const });
+    this.#tasks.set(id, task);
+    return task;
+  }
+  interrupt(id: string, policy: "continue" | "cancel"): DelegatedTaskSnapshot | undefined {
+    return policy === "cancel" ? this.cancel(id, "voice_interrupted") : this.#tasks.get(id);
+  }
+  cancel(id: string, cancellationReason = "application_cancelled"): DelegatedTaskSnapshot | undefined {
+    const current = this.#tasks.get(id);
+    if (!current || current.state !== "running") return current;
+    const next = Object.freeze({ id, state: "cancelled" as const, cancellationReason, terminalAtMs: this.#clock.now() });
+    this.#tasks.set(id, next);
+    return next;
+  }
+  complete(id: string): DelegatedTaskSnapshot | undefined {
+    const current = this.#tasks.get(id);
+    if (!current || current.state !== "running") return current;
+    const next = Object.freeze({ id, state: "completed" as const, terminalAtMs: this.#clock.now() });
+    this.#tasks.set(id, next);
+    return next;
+  }
+  get(id: string): DelegatedTaskSnapshot | undefined { return this.#tasks.get(id); }
+}
+
+export interface ExperimentFallbackRecord {
+  readonly assignmentId: string;
+  readonly intendedVariantId: string;
+  readonly actualProvider: string;
+  readonly exposureId: string;
+  readonly fallback: true;
+}
+
+/** Exactly-once fallback exposure model that preserves intention-to-treat assignment. */
+export class ExperimentFallbackSimulation {
+  readonly #records = new Map<string, ExperimentFallbackRecord>();
+  record(input: ExperimentFallbackRecord): ExperimentFallbackRecord {
+    const existing = this.#records.get(input.exposureId);
+    if (existing) return existing;
+    const record = Object.freeze({ ...input });
+    this.#records.set(input.exposureId, record);
+    return record;
+  }
+  read(): readonly ExperimentFallbackRecord[] { return [...this.#records.values()]; }
+}
+
 export interface ReplayOptions {
   fromSequence?: number;
   toSequence?: number;

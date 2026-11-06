@@ -1,6 +1,6 @@
 {
   "name": "@jchaffin/voicekit-ui",
-  "version": "1.0.0-alpha.0",
+  "version": "1.0.0-alpha.1",
   "description": "Accessible, themeable React components for VoiceKit",
   "license": "MIT",
   "type": "module",
@@ -34,7 +34,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@jchaffin/voicekit-react": "1.0.0-alpha.0"
+    "@jchaffin/voicekit-react": "1.0.0-alpha.1"
   },
   "peerDependencies": {
     "react": ">=18.0.0",
